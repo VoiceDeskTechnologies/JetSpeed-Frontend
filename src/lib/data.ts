@@ -1,0 +1,49 @@
+import { supabase } from "./supabase";
+
+export type Profile = { id: string; full_name: string | null; phone: string | null; role: "customer" | "driver" | "admin" };
+export type Shipment = { id: string; tracking_number: string; status: string; origin: string; destination: string; estimated_delivery: string | null; created_at: string; invoice_uploaded: boolean };
+export type TrackingEvent = { id: string; package_id: string; status: string; description: string | null; location: string | null; created_at: string };
+export type SupportTicket = { id: string; subject: string; category: string; priority: string; message: string; status: string; created_at: string };
+export type Invoice = { id: string; invoice_number: string; amount: number; currency: string; status: string; due_date: string | null; created_at: string };
+
+function requireClient() { if (!supabase) throw new Error("Supabase is not configured."); return supabase; }
+export async function getSession() { return requireClient().auth.getSession(); }
+export async function signIn(email: string, password: string) { return requireClient().auth.signInWithPassword({ email, password }); }
+export async function signUp(email: string, password: string, fullName: string, whatsappNumber?: string) { return requireClient().auth.signUp({ email, password, options: { data: { full_name: fullName, phone: whatsappNumber || null } } }); }
+export async function signOut() { return requireClient().auth.signOut(); }
+export async function getProfile(userId: string) { return requireClient().from("profiles").select("*").eq("id", userId).single<Profile>(); }
+export async function updateProfile(userId: string, values: { full_name: string; phone: string | null }) { return requireClient().from("profiles").update(values).eq("id", userId).select().single<Profile>(); }
+export async function listShipments(userId: string) { return requireClient().from("packages").select("id,tracking_number,status,origin,destination,estimated_delivery,created_at,invoice_uploaded").eq("customer_id", userId).order("created_at", { ascending: false }).returns<Shipment[]>(); }
+export async function listAllShipments() { return requireClient().from("packages").select("id,tracking_number,status,origin,destination,estimated_delivery,created_at,invoice_uploaded,customer_name,customer_email,customer_phone,collection_amount_jmd,weight_lb,freight_type").order("created_at", { ascending: false }).returns<Shipment[]>(); }
+export function calculateCollectionAmount(weightLb: number, freightType: "air" | "sea") {
+  const pounds = Math.ceil(weightLb);
+  const air = pounds === 1 ? 750 : pounds === 2 ? 1155 : Math.round(1754 + (pounds - 3) * 520.2);
+  return freightType === "sea" ? Math.round(air * (560 / 750)) : air;
+}
+export async function updatePackageWeight(packageId: string, weightLb: number, freightType: "air" | "sea") {
+  const collectionAmount = calculateCollectionAmount(weightLb, freightType);
+  return requireClient().from("packages").update({ weight_lb: weightLb, freight_type: freightType, collection_amount_jmd: collectionAmount }).eq("id", packageId).select("id,weight_lb,freight_type,collection_amount_jmd").single();
+}
+export async function listTrackingEvents(packageId: string) { return requireClient().from("tracking_events").select("id,package_id,status,description,location,created_at").eq("package_id", packageId).order("created_at", { ascending: true }).returns<TrackingEvent[]>(); }
+export async function updateShipmentMilestone(packageId: string, status: string, description: string, location: string) {
+  const client = requireClient();
+  const updated = await client.from("packages").update({ status }).eq("id", packageId);
+  if (updated.error) return updated;
+  return client.from("tracking_events").insert({ package_id: packageId, status, description, location }).select().single<TrackingEvent>();
+}
+export async function updatePackageInvoice(packageId: string, userId: string, filePath: string) {
+  const client = requireClient();
+  const { error: packageError } = await client.from("packages").update({ invoice_uploaded: true }).eq("id", packageId).eq("customer_id", userId);
+  if (packageError) return { error: packageError };
+  return client.from("invoices").insert({ customer_id: userId, package_id: packageId, invoice_number: `UPLOAD-${Date.now()}`, amount: 0, currency: "USD", status: "uploaded", file_path: filePath }).select().single();
+}
+export async function uploadInvoiceFile(userId: string, packageId: string, file: File) {
+  const path = `${userId}/${packageId}/${crypto.randomUUID()}-${file.name}`;
+  const result = await requireClient().storage.from("invoices").upload(path, file, { upsert: false, contentType: file.type });
+  return { ...result, path };
+}
+export async function listInvoices(userId: string) { return requireClient().from("invoices").select("*").eq("customer_id", userId).order("created_at", { ascending: false }).returns<Invoice[]>(); }
+export async function listSupportTickets(userId: string) { return requireClient().from("support_tickets").select("*").eq("customer_id", userId).order("created_at", { ascending: false }).returns<SupportTicket[]>(); }
+export async function createSupportTicket(userId: string, ticket: Pick<SupportTicket, "subject" | "category" | "priority" | "message">) {
+  return requireClient().from("support_tickets").insert({ customer_id: userId, ...ticket }).select().single<SupportTicket>();
+}
