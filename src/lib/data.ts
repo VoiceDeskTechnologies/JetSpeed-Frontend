@@ -15,7 +15,21 @@ export async function getProfile(userId: string) { return requireClient().from("
 export async function listProfiles() { return requireClient().from("profiles").select("id,full_name,phone,role,created_at").order("created_at", { ascending: false }); }
 export async function updateProfile(userId: string, values: { full_name: string; phone: string | null }) { return requireClient().from("profiles").update(values).eq("id", userId).select().single<Profile>(); }
 export async function listShipments(userId: string) { return requireClient().from("packages").select("id,tracking_number,status,origin,destination,estimated_delivery,created_at,invoice_uploaded").eq("customer_id", userId).order("created_at", { ascending: false }).returns<Shipment[]>(); }
-export async function listAllShipments() { return requireClient().from("packages").select("id,tracking_number,status,origin,destination,estimated_delivery,created_at,invoice_uploaded,customer_name,customer_email,customer_phone,collection_amount_jmd,weight_lb,freight_type").order("created_at", { ascending: false }).returns<Shipment[]>(); }
+export async function listAllShipments() { return requireClient().from("packages").select("id,customer_id,tracking_number,status,origin,destination,estimated_delivery,created_at,invoice_uploaded,customer_name,customer_email,customer_phone,collection_amount_jmd,weight_lb,freight_type").order("created_at", { ascending: false }).returns<Shipment[]>(); }
+export async function listSiteSettings() { return requireClient().from("site_settings").select("key,value").order("key"); }
+export async function saveSiteSetting(key: string, value: unknown, userId: string) { return requireClient().from("site_settings").upsert({ key, value, updated_by: userId }).select().single(); }
+export async function recordPayment(payment: { package_id: string; customer_id: string; amount: number; payment_type: "cash" | "card"; received_by: string }) {
+  return requireClient().from("payments").insert({ package_id: payment.package_id, customer_id: payment.customer_id, amount: payment.amount, currency: "JMD", payment_type: payment.payment_type, status: "paid", received_by: payment.received_by }).select().single();
+}
+export async function sendPaymentReceipt(paymentId: string) {
+  const session = await requireClient().auth.getSession();
+  const token = session.data.session?.access_token;
+  if (!token) throw new Error("Your admin session has expired.");
+  const apiUrl = import.meta.env.VITE_API_URL?.replace(/\/$/, "");
+  if (!apiUrl) throw new Error("Payment email delivery is not configured.");
+  const response = await fetch(`${apiUrl}/payment-receipts/${paymentId}/receipt`, { method: "POST", headers: { Authorization: `Bearer ${token}` } });
+  if (!response.ok) throw new Error((await response.json() as { error?: string }).error || "Unable to send payment receipt.");
+}
 export function calculateCollectionAmount(weightLb: number, freightType: "air" | "sea") {
   const pounds = Math.ceil(weightLb);
   const air = pounds === 1 ? 750 : pounds === 2 ? 1155 : Math.round(1754 + (pounds - 3) * 520.2);
