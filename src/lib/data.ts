@@ -1,6 +1,6 @@
 import { supabase } from "./supabase";
 
-export type Profile = { id: string; full_name: string | null; phone: string | null; role: "customer" | "driver" | "admin" };
+export type Profile = { id: string; full_name: string | null; phone: string | null; role: "customer" | "support" | "driver" | "admin" };
 export type Shipment = { id: string; tracking_number: string; status: string; origin: string; destination: string; estimated_delivery: string | null; created_at: string; invoice_uploaded: boolean };
 export type TrackingEvent = { id: string; package_id: string; status: string; description: string | null; location: string | null; created_at: string };
 export type SupportTicket = { id: string; subject: string; category: string; priority: string; message: string; status: string; created_at: string };
@@ -13,6 +13,7 @@ export async function signUp(email: string, password: string, fullName: string, 
 export async function signOut() { return requireClient().auth.signOut(); }
 export async function getProfile(userId: string) { return requireClient().from("profiles").select("*").eq("id", userId).single<Profile>(); }
 export async function listProfiles() { return requireClient().from("profiles").select("id,full_name,phone,role,created_at").order("created_at", { ascending: false }); }
+export async function updateUserRole(userId: string, role: "customer" | "support" | "admin") { return requireClient().from("profiles").update({ role }).eq("id", userId).select().single<Profile>(); }
 export async function updateProfile(userId: string, values: { full_name: string; phone: string | null }) { return requireClient().from("profiles").update(values).eq("id", userId).select().single<Profile>(); }
 export async function listShipments(userId: string) { return requireClient().from("packages").select("id,tracking_number,status,origin,destination,estimated_delivery,created_at,invoice_uploaded").eq("customer_id", userId).order("created_at", { ascending: false }).returns<Shipment[]>(); }
 export async function listAllShipments() { return requireClient().from("packages").select("id,customer_id,tracking_number,status,origin,destination,estimated_delivery,created_at,invoice_uploaded,customer_name,customer_email,customer_phone,collection_amount_jmd,weight_lb,freight_type,profiles:customer_id(full_name,phone)").order("created_at", { ascending: false }).returns<Shipment[]>(); }
