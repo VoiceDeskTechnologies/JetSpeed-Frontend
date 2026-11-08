@@ -6,7 +6,7 @@ import {
 } from "lucide-react";
 import { trackPackage } from "./lib/api";
 import { supabase, supabaseConfigured } from "./lib/supabase";
-import { calculateCollectionAmount, createSupportTicket, getProfile, getSession, listAllShipments, listAllSupportTickets, listInvoices, listProfiles, listShipments, listSiteSettings, listSupportTickets, listTrackingEvents, recordPayment, saveSiteSetting, sendPaymentReceipt, signIn, signUp, signOut, updatePackageInvoice, updatePackageWeight, updateProfile, updateShipmentMilestone, updateUserRole, uploadInvoiceFile } from "./lib/data";
+import { calculateCollectionAmount, createSupportTicket, getProfile, getSession, listAllPayments, listAllShipments, listAllSupportTickets, listInvoices, listProfiles, listShipments, listSiteSettings, listSupportTickets, listTrackingEvents, recordPayment, saveSiteSetting, sendPaymentReceipt, signIn, signUp, signOut, updatePackageInvoice, updatePackageWeight, updateProfile, updateShipmentMilestone, updateUserRole, uploadInvoiceFile } from "./lib/data";
 
 type View = "home" | "services" | "track" | "about" | "contact" | "help" | "terms" | "privacy" |
   "customer" | "admin";
@@ -119,21 +119,23 @@ function PortalContent({ active, admin, canChangeRoles, userId, onNavigate }: { 
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [shipments, setShipments] = useState<any[]>([]);
   const [profiles, setProfiles] = useState<any[]>([]);
+  const [payments, setPayments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   useEffect(() => {
     if (!supabaseConfigured || !userId) { setLoading(false); return; }
-    Promise.all([admin ? listAllShipments() : listShipments(userId), admin ? listAllSupportTickets() : listSupportTickets(userId), admin ? listProfiles() : Promise.resolve({ data: [], error: null })]).then(([ships, support, users]) => {
+    Promise.all([admin ? listAllShipments() : listShipments(userId), admin ? listAllSupportTickets() : listSupportTickets(userId), admin ? listProfiles() : Promise.resolve({ data: [], error: null }), admin ? listAllPayments() : Promise.resolve({ data: [], error: null })]).then(([ships, support, users, paymentRows]) => {
       if (ships.error || support.error) throw (ships.error || support.error);
       if (users.error) throw users.error;
-      setShipments(ships.data ?? []); setTickets(support.data ?? []); setProfiles(users.data ?? []);
+      if (paymentRows.error) throw paymentRows.error;
+      setShipments(ships.data ?? []); setTickets(support.data ?? []); setProfiles(users.data ?? []); setPayments(paymentRows.data ?? []);
     }).catch((e) => setError(e instanceof Error ? e.message : "Unable to load account data.")).finally(() => setLoading(false));
   }, [userId]);
   if (!supabaseConfigured) return <section className="portal-card"><h2>Supabase is not configured</h2><p className="muted">Demo data is disabled. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY, run the migrations, and sign in again.</p></section>;
   if (!userId) return <section className="portal-card"><h2>Sign in required</h2><p className="muted">Your account session is not available.</p></section>;
   if (loading) return <section className="portal-card"><h2>Loading your account…</h2></section>;
   if (error) return <section className="portal-card"><h2>Unable to load your account</h2><p className="form-error">{error}</p></section>;
-  if (admin) return <AdminWorkspace active={active} tickets={tickets} shipments={shipments} profiles={profiles} userId={userId} canChangeRoles={canChangeRoles} />;
+  if (admin) return <AdminWorkspace active={active} tickets={tickets} shipments={shipments} profiles={profiles} payments={payments} userId={userId} canChangeRoles={canChangeRoles} />;
   return <CustomerWorkspace active={active} shipments={shipments} userId={userId} onNavigate={onNavigate} onTicket={async (ticket) => { const result = await createSupportTicket(userId, ticket); if (result.error) throw result.error; setTickets(current => [result.data!, ...current]); }} />;
 }
 
@@ -179,8 +181,30 @@ function AccountSettings({ userId }: { userId: string }) {
   const save = async (event: FormEvent) => { event.preventDefault(); const result = await updateProfile(userId, { full_name: name.trim(), phone: whatsapp.trim() || null }); setMessage(result.error ? result.error.message : "Profile settings saved."); };
   return <section className="portal-card"><h2>Account Settings</h2><p className="muted">Update your profile and optional WhatsApp contact number.</p><form onSubmit={save}><div className="form-grid"><label>Full name<input value={name} onChange={event => setName(event.target.value)} required /></label><label>WhatsApp number <span className="muted">(optional)</span><input type="tel" value={whatsapp} onChange={event => setWhatsapp(event.target.value)} placeholder="+1 876 555 0123" /></label></div><button className="button" type="submit">Save settings</button>{message && <div className="notice"><CheckCircle2 size={17} />{message}</div>}</form><h3>Notifications</h3><label className="check-option"><input type="checkbox" defaultChecked /> Shipment status emails</label><label className="check-option"><input type="checkbox" defaultChecked /> Delivery reminders</label></section>;
 }
-
-function AdminWorkspace({ active, tickets, shipments, profiles, userId, canChangeRoles }: { active: string; tickets: Ticket[]; shipments: any[]; profiles: any[]; userId: string; canChangeRoles: boolean }) {
+function ReportsWorkspace({ shipments, payments }: { shipments: any[]; payments: any[] }) {
+  const download = () => {
+    const headers = ["Tracking number", "Customer", "Status", "Origin", "Destination", "Weight (lb)", "Freight", "Collection amount (JMD)", "Payment status", "Invoice uploaded", "Created"];
+    const rows = shipments.map(shipment => { const payment = payments.find(row => row.package_id === shipment.id); return [shipment.tracking_number, shipment.customer_name || "", shipment.status, shipment.origin, shipment.destination, shipment.weight_lb || "", shipment.freight_type || "", shipment.collection_amount_jmd || "", payment?.status || "Unpaid", shipment.invoice_uploaded ? "Yes" : "No", shipment.created_at]; });
+    const csv = [headers, ...rows].map(row => row.map(value => `"${String(value).replace(/"/g, '""')}"`).join(",")).join("\n");
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    const link = document.createElement("a"); link.href = url; link.download = `jetspeed-package-report-${new Date().toISOString().slice(0, 10)}.csv`; link.click(); URL.revokeObjectURL(url);
+  };
+  return <section className="portal-card"><div className="card-title"><div><h2>Reports</h2><p className="muted">Live package, customer, cost, invoice, and payment data from Supabase.</p></div><button className="button button-small" onClick={download} disabled={!shipments.length}>Download CSV</button></div><div className="table-wrap"><table><thead><tr><th>Package</th><th>Customer</th><th>Status</th><th>Route</th><th>Weight</th><th>Cost (JMD)</th><th>Payment</th><th>Invoice</th></tr></thead><tbody>{shipments.length ? shipments.map(shipment => { const payment = payments.find(row => row.package_id === shipment.id); return <tr key={shipment.id}><td><b>{shipment.tracking_number}</b></td><td>{shipment.customer_name || "—"}</td><td>{shipment.status}</td><td>{shipment.origin} → {shipment.destination}</td><td>{shipment.weight_lb ? `${shipment.weight_lb} lb` : "—"}</td><td>{shipment.collection_amount_jmd ? `JMD $${Number(shipment.collection_amount_jmd).toLocaleString("en-JM")}` : "—"}</td><td>{payment?.status || "Unpaid"}</td><td>{shipment.invoice_uploaded ? "Uploaded" : "Missing"}</td></tr>; }) : <tr><td colSpan={8}>No package records are available.</td></tr>}</tbody></table></div></section>;
+}
+function SystemLogsWorkspace() {
+  const [result, setResult] = useState<{ status: "operational" | "outage"; message: string; checkedAt: string } | null>(() => { try { const cached = localStorage.getItem("jetspeed-health-check"); return cached ? JSON.parse(cached) : null; } catch { return null; } });
+  const [checking, setChecking] = useState(false);
+  const runCheck = async () => {
+    const cachedAt = result ? Date.parse(result.checkedAt) : 0;
+    if (Date.now() - cachedAt < 86_400_000) return;
+    setChecking(true);
+    const apiUrl = import.meta.env.VITE_API_URL?.replace(/\/$/, "") || "";
+    try { const response = await fetch(`${apiUrl}/health`); const healthy = response.ok; const next = { status: healthy ? "operational" : "outage" as "operational" | "outage", message: healthy ? "Backend and API are operational." : "Backend health check returned an outage response.", checkedAt: new Date().toISOString() }; setResult(next); localStorage.setItem("jetspeed-health-check", JSON.stringify(next)); } catch { const next = { status: "outage" as const, message: "Backend health check could not reach the API.", checkedAt: new Date().toISOString() }; setResult(next); localStorage.setItem("jetspeed-health-check", JSON.stringify(next)); } finally { setChecking(false); }
+  };
+  useEffect(() => { void runCheck(); }, []);
+  return <section className="portal-card"><div className="card-title"><div><h2>System Logs</h2><p className="muted">Backend health monitoring runs no more than once every 24 hours.</p></div><button className="button button-small" onClick={runCheck} disabled={checking || Boolean(result && Date.now() - Date.parse(result.checkedAt) < 86_400_000)}>{checking ? "Checking..." : "Run daily check"}</button></div>{result ? <div className={result.status === "operational" ? "notice system-health" : "form-error system-health"}><span className={`health-dot ${result.status}`} /> <div><strong>{result.status === "operational" ? "System 100% operational" : "System outage detected"}</strong><small>{result.message}<br />Last checked {new Date(result.checkedAt).toLocaleString()}</small></div></div> : <div className="empty-state"><h3>Health check pending</h3><p className="muted">The daily backend check has not run yet.</p></div>}</section>;
+}
+function AdminWorkspace({ active, tickets, shipments, profiles, payments, userId, canChangeRoles }: { active: string; tickets: Ticket[]; shipments: any[]; profiles: any[]; payments: any[]; userId: string; canChangeRoles: boolean }) {
   const [roleChanges, setRoleChanges] = useState<Record<string, "customer" | "support" | "admin">>({});
   const [roleMessage, setRoleMessage] = useState("");
   const saveRole = async (profileId: string) => { const role = roleChanges[profileId]; if (!role) return; const result = await updateUserRole(profileId, role); setRoleMessage(result.error ? `Unable to update role: ${result.error.message}` : "User role updated."); };
@@ -200,6 +224,8 @@ function AdminWorkspace({ active, tickets, shipments, profiles, userId, canChang
     if (!result.error) setSavedAmounts(current => ({ ...current, [shipment.id]: result.data.collection_amount_jmd }));
   };
   if (active === "Dashboard") { const inTransit = shipments.filter(shipment => shipment.status === "in_transit").length; const delivered = shipments.filter(shipment => shipment.status === "delivered").length; return <><div className="stats"><Stat icon={<Package />} value={String(shipments.length)} label="Shipments" /><Stat icon={<Truck />} value={String(inTransit)} label="In transit" accent /><Stat icon={<CheckCircle2 />} value={String(delivered)} label="Delivered" green /></div><section className="portal-card"><h2>Dashboard analytics</h2><p className="muted">Live operational counts from Supabase. Financial totals appear when payment records are available.</p><div className="analytics-grid"><div><b>Total shipments</b><strong>{shipments.length}</strong><span>Current package records</span></div><div><b>Invoices uploaded</b><strong>{shipments.filter(shipment => shipment.invoice_uploaded).length}</strong><span>Linked package invoices</span></div><div><b>Open tickets</b><strong>{tickets.filter(ticket => ticket.status !== "closed").length}</strong><span>Customer support queue</span></div></div></section></>; }
+  if (active === "Reports") return <ReportsWorkspace shipments={shipments} payments={payments} />;
+  if (active === "System Logs") return <SystemLogsWorkspace />;
   if (active === "Payments") return <PaymentWorkspace shipments={shipments} userId={userId} />;
   if (active === "Support Tickets") return <section className="portal-card"><h2>Support Tickets</h2><p className="muted">Tickets submitted by customers.</p><div className="table-wrap"><table><thead><tr><th>ID</th><th>Subject</th><th>Category</th><th>Priority</th><th>Status</th><th>Submitted</th></tr></thead><tbody>{tickets.length ? tickets.map(t => <tr key={t.id}><td><b>{t.id.slice(0, 8)}</b></td><td>{t.subject}<br /><small>{t.message}</small></td><td>{t.category}</td><td><span className="status">{t.priority}</span></td><td>{t.status}</td><td>{t.created_at ? new Date(t.created_at).toLocaleString() : ""}</td></tr>) : <tr><td colSpan={6}>No customer tickets yet.</td></tr>}</tbody></table></div></section>;
   if (active === "Manage Users") return <section className="portal-card"><div className="card-title"><div><h2>Manage Users</h2><p className="muted">Customer profiles loaded from Supabase.</p></div></div>{roleMessage && <div className={roleMessage.startsWith("Unable") ? "form-error" : "notice"}>{roleMessage}</div>}<div className="table-wrap"><table><thead><tr><th>Name</th><th>WhatsApp</th><th>Role</th><th>Joined</th><th>Action</th></tr></thead><tbody>{profiles.length ? profiles.map(profile => <tr key={profile.id}><td><b>{profile.full_name || "Unnamed customer"}</b></td><td>{profile.phone || "Not provided"}</td><td>{canChangeRoles ? <select value={roleChanges[profile.id] || profile.role} onChange={event => setRoleChanges(current => ({ ...current, [profile.id]: event.target.value as "customer" | "support" | "admin" }))}><option value="customer">Customer</option><option value="support">Support</option><option value="admin">Admin</option></select> : <span className="status">{profile.role}</span>}</td><td>{profile.created_at ? new Date(profile.created_at).toLocaleDateString() : "—"}</td><td>{canChangeRoles && <button className="button button-small" disabled={!roleChanges[profile.id] || roleChanges[profile.id] === profile.role} onClick={() => saveRole(profile.id)}>Save role</button>}</td></tr>) : <tr><td colSpan={5}>No user profiles found.</td></tr>}</tbody></table></div></section>;
