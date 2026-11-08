@@ -1,6 +1,6 @@
 import { supabase } from "./supabase";
 
-export type Profile = { id: string; full_name: string | null; phone: string | null; role: "customer" | "support" | "driver" | "admin" };
+export type Profile = { id: string; full_name: string | null; phone: string | null; role: "customer" | "support" | "driver" | "admin"; identifier_code?: string | null; us_address_line1?: string; us_address_city?: string; us_address_state?: string; us_address_zip?: string };
 export type Shipment = { id: string; tracking_number: string; status: string; origin: string; destination: string; estimated_delivery: string | null; created_at: string; invoice_uploaded: boolean };
 export type TrackingEvent = { id: string; package_id: string; status: string; description: string | null; location: string | null; created_at: string };
 export type SupportTicket = { id: string; subject: string; category: string; priority: string; message: string; status: string; created_at: string };
@@ -12,7 +12,7 @@ export async function signIn(email: string, password: string) { return requireCl
 export async function signUp(email: string, password: string, fullName: string, whatsappNumber?: string) { return requireClient().auth.signUp({ email, password, options: { data: { full_name: fullName, phone: whatsappNumber || null } } }); }
 export async function signOut() { return requireClient().auth.signOut(); }
 export async function getProfile(userId: string) { return requireClient().from("profiles").select("*").eq("id", userId).single<Profile>(); }
-export async function listProfiles() { return requireClient().from("profiles").select("id,full_name,phone,role,created_at").order("created_at", { ascending: false }); }
+export async function listProfiles() { return requireClient().from("profiles").select("id,full_name,phone,role,identifier_code,created_at").order("created_at", { ascending: false }); }
 export async function updateUserRole(userId: string, role: "customer" | "support" | "admin") { return requireClient().from("profiles").update({ role }).eq("id", userId).select().single<Profile>(); }
 export async function updateProfile(userId: string, values: { full_name: string; phone: string | null }) { return requireClient().from("profiles").update(values).eq("id", userId).select().single<Profile>(); }
 export async function listShipments(userId: string) { return requireClient().from("packages").select("id,tracking_number,status,origin,destination,estimated_delivery,created_at,invoice_uploaded").eq("customer_id", userId).order("created_at", { ascending: false }).returns<Shipment[]>(); }
