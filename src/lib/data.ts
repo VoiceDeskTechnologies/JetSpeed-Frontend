@@ -1,6 +1,6 @@
 import { supabase } from "./supabase";
 
-export type Profile = { id: string; full_name: string | null; phone: string | null; role: "customer" | "support" | "driver" | "admin"; identifier_code?: string | null; us_address_line1?: string; us_address_city?: string; us_address_state?: string; us_address_zip?: string };
+export type Profile = { id: string; full_name: string | null; phone: string | null; email?: string | null; role: "customer" | "support" | "driver" | "admin"; identifier_code?: string | null; delivery_preference?: "pickup" | "delivery"; us_address_line1?: string; us_address_city?: string; us_address_state?: string; us_address_zip?: string };
 export type Shipment = { id: string; tracking_number: string; status: string; origin: string; destination: string; estimated_delivery: string | null; created_at: string; invoice_uploaded: boolean };
 export type TrackingEvent = { id: string; package_id: string; status: string; description: string | null; location: string | null; created_at: string };
 export type SupportTicket = { id: string; subject: string; category: string; priority: string; message: string; status: string; created_at: string };
@@ -15,6 +15,9 @@ export async function getProfile(userId: string) { return requireClient().from("
 export async function listProfiles() { return requireClient().from("profiles").select("id,full_name,phone,role,identifier_code,created_at").order("created_at", { ascending: false }); }
 export async function updateUserRole(userId: string, role: "customer" | "support" | "admin") { return requireClient().from("profiles").update({ role }).eq("id", userId).select().single<Profile>(); }
 export async function updateProfile(userId: string, values: { full_name: string; phone: string | null }) { return requireClient().from("profiles").update(values).eq("id", userId).select().single<Profile>(); }
+export async function updateDeliveryPreference(userId: string, deliveryPreference: "pickup" | "delivery") { return requireClient().from("profiles").update({ delivery_preference: deliveryPreference }).eq("id", userId).select().single(); }
+export async function updateEmail(email: string) { return requireClient().auth.updateUser({ email }); }
+export async function updatePassword(password: string) { return requireClient().auth.updateUser({ password }); }
 export async function listShipments(userId: string) { return requireClient().from("packages").select("id,tracking_number,status,origin,destination,estimated_delivery,created_at,invoice_uploaded").eq("customer_id", userId).order("created_at", { ascending: false }).returns<Shipment[]>(); }
 export async function listAllShipments() { return requireClient().from("packages").select("id,customer_id,tracking_number,status,origin,destination,estimated_delivery,created_at,invoice_uploaded,customer_name,customer_email,customer_phone,collection_amount_jmd,weight_lb,freight_type,profiles:customer_id(full_name,phone)").order("created_at", { ascending: false }).returns<Shipment[]>(); }
 export async function listSiteSettings() { return requireClient().from("site_settings").select("key,value").order("key"); }
