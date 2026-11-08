@@ -19,6 +19,9 @@ export async function listShipments(userId: string) { return requireClient().fro
 export async function listAllShipments() { return requireClient().from("packages").select("id,customer_id,tracking_number,status,origin,destination,estimated_delivery,created_at,invoice_uploaded,customer_name,customer_email,customer_phone,collection_amount_jmd,weight_lb,freight_type,profiles:customer_id(full_name,phone)").order("created_at", { ascending: false }).returns<Shipment[]>(); }
 export async function listSiteSettings() { return requireClient().from("site_settings").select("key,value").order("key"); }
 export async function saveSiteSetting(key: string, value: unknown, userId: string) { return requireClient().from("site_settings").upsert({ key, value, updated_by: userId }).select().single(); }
+export async function listShippingServices() { return requireClient().from("shipping_services").select("id,name,description,service_type,active,created_at").order("name"); }
+export async function createShippingService(service: { name: string; description: string; service_type: string }) { return requireClient().from("shipping_services").insert({ ...service, active: true }).select().single(); }
+export async function updateShippingService(id: string, values: { name: string; description: string; service_type: string; active: boolean }) { return requireClient().from("shipping_services").update(values).eq("id", id).select().single(); }
 export async function recordPayment(payment: { package_id: string; customer_id: string; amount: number; payment_type: "cash" | "card"; received_by: string }) {
   return requireClient().from("payments").insert({ package_id: payment.package_id, customer_id: payment.customer_id, amount: payment.amount, currency: "JMD", payment_type: payment.payment_type, status: "paid", received_by: payment.received_by }).select().single();
 }
