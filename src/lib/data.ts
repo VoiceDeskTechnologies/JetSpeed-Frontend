@@ -63,7 +63,7 @@ export async function uploadInvoiceFile(userId: string, packageId: string, file:
 }
 export async function listInvoices(userId: string) { return requireClient().from("invoices").select("*").eq("customer_id", userId).order("created_at", { ascending: false }).returns<Invoice[]>(); }
 export async function listSupportTickets(userId: string) { return requireClient().from("support_tickets").select("*").eq("customer_id", userId).order("created_at", { ascending: false }).returns<SupportTicket[]>(); }
-export async function listAllSupportTickets() { return requireClient().from("support_tickets").select("*").order("created_at", { ascending: false }).returns<SupportTicket[]>(); }
+export async function listAllSupportTickets() { return requireClient().from("support_tickets").select("*,profiles:customer_id(full_name,email,phone)").order("created_at", { ascending: false }).returns<SupportTicket[]>(); }
 export async function listAllPayments() { return requireClient().from("payments").select("id,package_id,customer_id,amount,currency,status,payment_type,created_at").order("created_at", { ascending: false }); }
 export async function createSupportTicket(userId: string, ticket: Pick<SupportTicket, "subject" | "category" | "priority" | "message">) {
   return requireClient().from("support_tickets").insert({ customer_id: userId, ...ticket }).select().single<SupportTicket>();
