@@ -124,11 +124,14 @@ function PortalContent({ active, admin, canChangeRoles, userId, onNavigate }: { 
   const [error, setError] = useState("");
   useEffect(() => {
     if (!supabaseConfigured || !userId) { setLoading(false); return; }
-    Promise.all([admin ? listAllShipments() : listShipments(userId), admin ? listAllSupportTickets() : listSupportTickets(userId), admin ? listProfiles() : Promise.resolve({ data: [], error: null }), admin ? listAllPayments() : Promise.resolve({ data: [], error: null })]).then(([ships, support, users, paymentRows]) => {
+    Promise.all([admin ? listAllShipments() : listShipments(userId), admin ? listAllSupportTickets() : listSupportTickets(userId), admin ? listProfiles() : Promise.resolve({ data: [], error: null })]).then(async ([ships, support, users]) => {
       if (ships.error || support.error) throw (ships.error || support.error);
       if (users.error) throw users.error;
-      if (paymentRows.error) throw paymentRows.error;
-      setShipments(ships.data ?? []); setTickets(support.data ?? []); setProfiles(users.data ?? []); setPayments(paymentRows.data ?? []);
+      setShipments(ships.data ?? []); setTickets(support.data ?? []); setProfiles(users.data ?? []);
+      if (admin) {
+        const paymentRows = await listAllPayments();
+        setPayments(paymentRows.error ? [] : paymentRows.data ?? []);
+      }
     }).catch((e) => setError(e instanceof Error ? e.message : "Unable to load account data.")).finally(() => setLoading(false));
   }, [userId]);
   if (!supabaseConfigured) return <section className="portal-card"><h2>Supabase is not configured</h2><p className="muted">Demo data is disabled. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY, run the migrations, and sign in again.</p></section>;
