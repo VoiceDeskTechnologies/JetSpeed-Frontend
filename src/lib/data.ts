@@ -4,6 +4,7 @@ export type Profile = { id: string; full_name: string | null; phone: string | nu
 export type Shipment = { id: string; tracking_number: string; status: string; origin: string; destination: string; estimated_delivery: string | null; created_at: string; invoice_uploaded: boolean };
 export type TrackingEvent = { id: string; package_id: string; status: string; description: string | null; location: string | null; created_at: string };
 export type SupportTicket = { id: string; subject: string; category: string; priority: string; message: string; status: string; created_at: string };
+export type AdminNotification = { id: string; type: string; title: string; body: string; read_at: string | null; created_at: string };
 export type Invoice = { id: string; invoice_number: string; amount: number; currency: string; status: string; due_date: string | null; created_at: string };
 
 function requireClient() { if (!supabase) throw new Error("Supabase is not configured."); return supabase; }
@@ -86,6 +87,9 @@ export async function uploadInvoiceFile(userId: string, packageId: string, file:
 export async function listInvoices(userId: string) { return requireClient().from("invoices").select("*").eq("customer_id", userId).order("created_at", { ascending: false }).returns<Invoice[]>(); }
 export async function listSupportTickets(userId: string) { return requireClient().from("support_tickets").select("*").eq("customer_id", userId).order("created_at", { ascending: false }).returns<SupportTicket[]>(); }
 export async function listAllSupportTickets() { return requireClient().from("support_tickets").select("*,profiles:customer_id(full_name,email,phone)").order("created_at", { ascending: false }).returns<SupportTicket[]>(); }
+export async function listAllInvoices() { return requireClient().from("invoices").select("id,status,created_at").order("created_at", { ascending: false }); }
+export async function listNotifications(userId: string) { return requireClient().from("notifications").select("id,type,title,body,read_at,created_at").eq("user_id", userId).order("created_at", { ascending: false }).limit(50).returns<AdminNotification[]>(); }
+export async function markNotificationRead(notificationId: string) { return requireClient().from("notifications").update({ read_at: new Date().toISOString() }).eq("id", notificationId); }
 export async function listAllPayments() { return requireClient().from("payments").select("id,package_id,customer_id,amount,currency,status,payment_type,created_at").order("created_at", { ascending: false }); }
 export async function createSupportTicket(userId: string, ticket: Pick<SupportTicket, "subject" | "category" | "priority" | "message">) {
   return requireClient().from("support_tickets").insert({ customer_id: userId, ...ticket }).select().single<SupportTicket>();
