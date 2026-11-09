@@ -7,7 +7,7 @@ import {
 import { trackPackage } from "./lib/api";
 import { Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { supabase, supabaseConfigured } from "./lib/supabase";
-import { calculateCollectionAmount, createPackage, createShippingService, createSupportTicket, getProfile, getSession, listAllPayments, listAllShipments, listAllSupportTickets, listInvoices, listProfiles, listShipments, listShippingServices, listSiteSettings, listSupportTickets, listTrackingEvents, recordPayment, saveSiteSetting, sendPaymentReceipt, signIn, signUp, signOut, updateDeliveryPreference, updateEmail, updatePackageInvoice, updatePackageWeight, updatePassword, updateProfile, updateShipmentMilestone, updateShippingService, updateUserRole, uploadInvoiceFile } from "./lib/data";
+import { calculateCollectionAmount, createPackage, createShippingService, createSupportTicket, getProfile, getSession, listAllPayments, listAllShipments, listAllSupportTickets, listInvoices, listProfiles, listShipments, listShippingServices, listSiteSettings, listSupportTickets, listTrackingEvents, recordPayment, saveSiteSetting, sendPaymentReceipt, signIn, signUp, signOut, syncFreightForwarderAccount, updateDeliveryPreference, updateEmail, updatePackageInvoice, updatePackageWeight, updatePassword, updateProfile, updateShipmentMilestone, updateShippingService, updateUserRole, uploadInvoiceFile } from "./lib/data";
 
 type View = "home" | "services" | "track" | "about" | "contact" | "help" | "terms" | "privacy" |
   "customer" | "admin";
@@ -47,7 +47,7 @@ export function App() {
   }, []);
   useEffect(() => {
     if (!supabase) return;
-    const applySession = (session: any) => { setUserId(session?.user.id ?? null); setSessionEmail(session?.user.email ?? ""); if (session?.user.id) getProfile(session.user.id).then(({ data }) => { if (adminEmails.includes((session.user.email ?? "").toLowerCase())) setUserRole("admin"); else if (data?.role === "admin" || data?.role === "support") setUserRole(data.role); else setUserRole("customer"); }).catch(() => setUserRole(adminEmails.includes((session.user.email ?? "").toLowerCase()) ? "admin" : "customer")); else setUserRole("customer"); };
+    const applySession = (session: any) => { setUserId(session?.user.id ?? null); setSessionEmail(session?.user.email ?? ""); if (session?.user.id) getProfile(session.user.id).then(({ data }) => { if (adminEmails.includes((session.user.email ?? "").toLowerCase())) setUserRole("admin"); else if (data?.role === "admin" || data?.role === "support") setUserRole(data.role); else setUserRole("customer"); void syncFreightForwarderAccount().catch(() => undefined); }).catch(() => setUserRole(adminEmails.includes((session.user.email ?? "").toLowerCase()) ? "admin" : "customer")); else setUserRole("customer"); };
     getSession().then(({ data }) => applySession(data.session));
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => applySession(session));
     return () => listener.subscription.unsubscribe();

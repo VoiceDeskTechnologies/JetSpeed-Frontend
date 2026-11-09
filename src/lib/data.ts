@@ -40,6 +40,14 @@ export async function sendPaymentReceipt(paymentId: string) {
   const response = await fetch(`${apiUrl}/payment-receipts/${paymentId}/receipt`, { method: "POST", headers: { Authorization: `Bearer ${token}` } });
   if (!response.ok) throw new Error((await response.json() as { error?: string }).error || "Unable to send payment receipt.");
 }
+export async function syncFreightForwarderAccount() {
+  const session = await requireClient().auth.getSession();
+  const token = session.data.session?.access_token;
+  const apiUrl = import.meta.env.VITE_API_URL?.replace(/\/$/, "");
+  if (!token || !apiUrl) return;
+  const response = await fetch(`${apiUrl}/freight-forwarder/register`, { method: "POST", headers: { Authorization: `Bearer ${token}` } });
+  if (!response.ok) throw new Error("Unable to register your shipping address with the freight forwarder.");
+}
 export function calculateCollectionAmount(weightLb: number, freightType: "air" | "sea") {
   const pounds = Math.ceil(weightLb);
   const air = pounds === 1 ? 750 : pounds === 2 ? 1155 : Math.round(1754 + (pounds - 3) * 520.2);
