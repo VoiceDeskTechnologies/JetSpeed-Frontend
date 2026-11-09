@@ -13,7 +13,7 @@ export async function signIn(email: string, password: string) { return requireCl
 export async function signUp(email: string, password: string, fullName: string, whatsappNumber?: string) { return requireClient().auth.signUp({ email, password, options: { data: { full_name: fullName, phone: whatsappNumber || null } } }); }
 export async function signOut() { return requireClient().auth.signOut(); }
 export async function getProfile(userId: string) { return requireClient().from("profiles").select("*").eq("id", userId).single<Profile>(); }
-export async function listProfiles() { return requireClient().from("profiles").select("id,full_name,phone,role,identifier_code,created_at").order("created_at", { ascending: false }); }
+export async function listProfiles() { return requireClient().from("profiles").select("id,full_name,phone,email,role,identifier_code,delivery_preference,created_at").order("created_at", { ascending: false }); }
 export async function updateUserRole(userId: string, role: "customer" | "support" | "admin") { return requireClient().from("profiles").update({ role }).eq("id", userId).select().single<Profile>(); }
 export async function updateProfile(userId: string, values: { full_name: string; phone: string | null }) { return requireClient().from("profiles").update(values).eq("id", userId).select().single<Profile>(); }
 export async function updateDeliveryPreference(userId: string, deliveryPreference: "pickup" | "delivery") { return requireClient().from("profiles").update({ delivery_preference: deliveryPreference }).eq("id", userId).select().single(); }
