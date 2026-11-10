@@ -6,6 +6,7 @@ export type TrackingEvent = { id: string; package_id: string; status: string; de
 export type SupportTicket = { id: string; subject: string; category: string; priority: string; message: string; status: string; created_at: string };
 export type AdminNotification = { id: string; type: string; title: string; body: string; read_at: string | null; created_at: string };
 export type Invoice = { id: string; invoice_number: string; amount: number; currency: string; status: string; due_date: string | null; created_at: string };
+export type Announcement = { id: string; title: string; body: string; category: "service_update" | "promotion" | "holiday" | "maintenance" | "shipping_tip"; template: "banner" | "promotion" | "service_update" | "maintenance" | "shipping_tip"; status: "draft" | "active" | "paused" | "archived"; audience: "all" | "customer" | "staff"; starts_at: string | null; ends_at: string | null; priority: number; cta_label: string | null; cta_url: string | null; animation: "none" | "fade" | "slide"; countdown: boolean; image_url?: string | null; created_at: string; updated_at: string };
 
 function requireClient() { if (!supabase) throw new Error("Supabase is not configured."); return supabase; }
 export async function getSession() { return requireClient().auth.getSession(); }
@@ -98,3 +99,8 @@ export async function listAllPayments() { return requireClient().from("payments"
 export async function createSupportTicket(userId: string, ticket: Pick<SupportTicket, "subject" | "category" | "priority" | "message">) {
   return requireClient().from("support_tickets").insert({ customer_id: userId, ...ticket }).select().single<SupportTicket>();
 }
+export async function listPublicAnnouncements() { return requireClient().from("announcements").select("id,title,body,category,template,status,audience,starts_at,ends_at,priority,cta_label,cta_url,animation,countdown,image_url,created_at,updated_at").eq("status", "active").in("audience", ["all", "customer"]).or(`starts_at.is.null,starts_at.lte.${new Date().toISOString()}`).or(`ends_at.is.null,ends_at.gt.${new Date().toISOString()}`).order("priority", { ascending: false }).returns<Announcement[]>(); }
+export async function listAnnouncements() { return requireClient().from("announcements").select("*").order("priority", { ascending: false }).order("created_at", { ascending: false }).returns<Announcement[]>(); }
+export async function createAnnouncement(values: Partial<Announcement>) { return requireClient().from("announcements").insert(values).select().single<Announcement>(); }
+export async function updateAnnouncement(id: string, values: Partial<Announcement>) { return requireClient().from("announcements").update(values).eq("id", id).select().single<Announcement>(); }
+export async function deleteAnnouncement(id: string) { return requireClient().from("announcements").delete().eq("id", id); }
