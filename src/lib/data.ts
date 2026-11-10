@@ -89,6 +89,8 @@ export async function listInvoices(userId: string) { return requireClient().from
 export async function listSupportTickets(userId: string) { return requireClient().from("support_tickets").select("*").eq("customer_id", userId).order("created_at", { ascending: false }).returns<SupportTicket[]>(); }
 export async function listAllSupportTickets() { return requireClient().from("support_tickets").select("*,profiles:customer_id(full_name,email,phone)").order("created_at", { ascending: false }).returns<SupportTicket[]>(); }
 export async function listAllInvoices() { return requireClient().from("invoices").select("id,status,created_at").order("created_at", { ascending: false }); }
+export async function deleteInvoice(id: string) { return requireClient().from("invoices").delete().eq("id", id); }
+export async function deletePayment(id: string) { return requireClient().from("payments").delete().eq("id", id); }
 export async function listNotifications(userId: string) { return requireClient().from("notifications").select("id,type,title,body,read_at,created_at").eq("user_id", userId).order("created_at", { ascending: false }).limit(50).returns<AdminNotification[]>(); }
 export async function markNotificationRead(notificationId: string) { return requireClient().from("notifications").update({ read_at: new Date().toISOString() }).eq("id", notificationId); }
 export async function listAllPayments() { return requireClient().from("payments").select("id,package_id,customer_id,amount,currency,status,payment_type,created_at").order("created_at", { ascending: false }); }
