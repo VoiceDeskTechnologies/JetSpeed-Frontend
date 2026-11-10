@@ -24,6 +24,7 @@ export async function listAllShipments() { return requireClient().from("packages
 export async function createPackage(packageData: { customer_id: string; tracking_number: string; origin: string; destination: string; status: string; service_level: string; weight_kg: number | null; estimated_delivery: string | null; customer_name?: string | null; customer_email?: string | null; customer_phone?: string | null }) {
   return requireClient().from("packages").insert(packageData).select("id,customer_id,tracking_number,status,origin,destination,estimated_delivery,created_at,invoice_uploaded,customer_name,customer_email,customer_phone,collection_amount_jmd,weight_lb,freight_type").single();
 }
+export async function deletePackage(packageId: string) { return requireClient().from("packages").delete().eq("id", packageId); }
 export async function listSiteSettings() { return requireClient().from("site_settings").select("key,value").order("key"); }
 export async function saveSiteSetting(key: string, value: unknown, userId: string) { return requireClient().from("site_settings").upsert({ key, value, updated_by: userId }).select().single(); }
 export async function listShippingServices() { return requireClient().from("shipping_services").select("id,name,description,service_type,active,created_at").order("name"); }
