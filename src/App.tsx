@@ -36,6 +36,7 @@ export function App() {
   const [sessionEmail, setSessionEmail] = useState("");
   const [userId, setUserId] = useState<string | null>(null);
   const [userRole, setUserRole] = useState<"customer" | "support" | "admin">("customer");
+  const [authReady, setAuthReady] = useState(!supabase);
   const [contactSettings, setContactSettings] = useState<ContactSettings>({ support_phone: "+1 876 336 4724", support_email: "info@jetspeedcouriers.com", whatsapp_phone: "+1 876 336 4724" });
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem("jetspeed-theme") === "dark");
   const adminEmails = (import.meta.env.VITE_ADMIN_EMAILS ?? "").split(",").map((email: string) => email.trim().toLowerCase()).filter(Boolean);
@@ -58,7 +59,7 @@ export function App() {
   }, []);
   useEffect(() => {
     if (!supabase) return;
-    const applySession = (session: any) => { setUserId(session?.user.id ?? null); setSessionEmail(session?.user.email ?? ""); if (session?.user.id) getProfile(session.user.id).then(({ data }) => { if (adminEmails.includes((session.user.email ?? "").toLowerCase())) setUserRole("admin"); else if (data?.role === "admin" || data?.role === "support") setUserRole(data.role); else setUserRole("customer"); void syncFreightForwarderAccount().catch(() => undefined); }).catch(() => setUserRole(adminEmails.includes((session.user.email ?? "").toLowerCase()) ? "admin" : "customer")); else setUserRole("customer"); };
+    const applySession = (session: any) => { setUserId(session?.user.id ?? null); setSessionEmail(session?.user.email ?? ""); if (session?.user.id) getProfile(session.user.id).then(({ data }) => { if (adminEmails.includes((session.user.email ?? "").toLowerCase())) setUserRole("admin"); else if (data?.role === "admin" || data?.role === "support") setUserRole(data.role); else setUserRole("customer"); setAuthReady(true); void syncFreightForwarderAccount().catch(() => undefined); }).catch(() => { setUserRole(adminEmails.includes((session.user.email ?? "").toLowerCase()) ? "admin" : "customer"); setAuthReady(true); }); else { setUserRole("customer"); setAuthReady(true); } };
     getSession().then(({ data }) => applySession(data.session));
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => applySession(session));
     return () => listener.subscription.unsubscribe();
@@ -66,7 +67,7 @@ export function App() {
   const go = (next: View) => { setMenuOpen(false); location.hash = next; window.scrollTo(0, 0); };
   const logout = async () => { if (supabase) await signOut(); setUserId(null); setSessionEmail(""); go("home"); };
   if (view === "customer") return <><AnnouncementPopup /><Portal admin={false} userId={userId} email={sessionEmail} role="customer" contact={contactSettings} onBack={() => go("home")} onLogout={logout} /></>;
-  if (view === "admin") return isStaff ? <Portal admin userId={userId} email={sessionEmail} role={userRole} contact={contactSettings} onBack={() => go("home")} onLogout={logout} /> : <PublicPage view="home" go={go} contact={contactSettings} />;
+  if (view === "admin") { if (!authReady) return <div className="portal-route-loading"><h2>Restoring your staff session…</h2></div>; return isStaff ? <Portal admin userId={userId} email={sessionEmail} role={userRole} contact={contactSettings} onBack={() => go("home")} onLogout={logout} /> : <PublicPage view="home" go={go} contact={contactSettings} />; }
   return <div id="top"><AnnouncementPopup /><header className="site-header"><Logo />
     <button className="menu-toggle" onClick={() => setMenuOpen(!menuOpen)} aria-label="Toggle menu">{menuOpen ? <X /> : <Menu />}</button>
     <nav className={menuOpen ? "nav open" : "nav"}>{[
