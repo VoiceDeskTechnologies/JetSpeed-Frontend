@@ -6,6 +6,7 @@ export type TrackingEvent = { id: string; package_id: string; status: string; de
 export type SupportTicket = { id: string; subject: string; category: string; priority: string; message: string; status: string; created_at: string };
 export type AdminNotification = { id: string; type: string; title: string; body: string; read_at: string | null; created_at: string };
 export type Invoice = { id: string; invoice_number: string; amount: number; currency: string; status: string; due_date: string | null; created_at: string };
+export type AuthorizedPickupPerson = { id: string; user_id: string; full_name: string; phone: string; relationship: string | null; id_type: "national_id" | "drivers_license" | "passport" | "other"; id_document_path: string; created_at: string };
 export type Announcement = { id: string; title: string; body: string; category: "service_update" | "promotion" | "holiday" | "maintenance" | "shipping_tip"; template: "banner" | "promotion" | "service_update" | "maintenance" | "shipping_tip"; status: "draft" | "active" | "paused" | "archived"; audience: "all" | "customer" | "staff"; starts_at: string | null; ends_at: string | null; priority: number; cta_label: string | null; cta_url: string | null; animation: "none" | "fade" | "slide"; countdown: boolean; image_url?: string | null; created_at: string; updated_at: string };
 
 function requireClient() { if (!supabase) throw new Error("Supabase is not configured."); return supabase; }
@@ -14,7 +15,7 @@ export async function signIn(email: string, password: string) { return requireCl
 export async function signUp(email: string, password: string, fullName: string, whatsappNumber?: string) { return requireClient().auth.signUp({ email, password, options: { data: { full_name: fullName, phone: whatsappNumber || null } } }); }
 export async function signOut() { return requireClient().auth.signOut(); }
 export async function getProfile(userId: string) { return requireClient().from("profiles").select("*").eq("id", userId).single<Profile>(); }
-export async function listProfiles() { return requireClient().from("profiles").select("id,full_name,phone,email,role,identifier_code,delivery_preference,created_at").order("created_at", { ascending: false }); }
+export async function listProfiles() { return requireClient().from("profiles").select("id,full_name,phone,email,role,identifier_code,delivery_preference,pickup_location,us_address_line1,us_address_city,us_address_state,us_address_zip,created_at").order("created_at", { ascending: false }); }
 export async function updateUserRole(userId: string, role: "customer" | "support" | "admin") { return requireClient().from("profiles").update({ role }).eq("id", userId).select().single<Profile>(); }
 export async function updateProfile(userId: string, values: { full_name: string; phone: string | null; shipment_status_emails: boolean; delivery_reminders: boolean }) { return requireClient().from("profiles").update(values).eq("id", userId).select().single<Profile>(); }
 export async function updateDeliveryPreference(userId: string, deliveryPreference: "pickup" | "delivery") { return requireClient().from("profiles").update({ delivery_preference: deliveryPreference }).eq("id", userId).select().single(); }
@@ -91,6 +92,29 @@ export async function listSupportTickets(userId: string) { return requireClient(
 export async function listAllSupportTickets() { return requireClient().from("support_tickets").select("*,profiles:customer_id(full_name,email,phone)").order("created_at", { ascending: false }).returns<SupportTicket[]>(); }
 export async function listAllInvoices() { return requireClient().from("invoices").select("id,invoice_number,status,amount,currency,file_path,created_at").order("created_at", { ascending: false }); }
 export async function getInvoiceDownloadUrl(filePath: string) { return requireClient().storage.from("invoices").createSignedUrl(filePath, 300); }
+export async function listAuthorizedPickupPersons(userId: string) {
+  return requireClient().from("authorized_pickup_persons").select("id,user_id,full_name,phone,relationship,id_type,id_document_path,created_at").eq("user_id", userId).order("created_at", { ascending: false }).returns<AuthorizedPickupPerson[]>();
+}
+export async function createAuthorizedPickupPerson(userId: string, person: Pick<AuthorizedPickupPerson, "full_name" | "phone" | "relationship" | "id_type">, file: File) {
+  const client = requireClient();
+  const personId = crypto.randomUUID();
+  const safeFileName = file.name.replace(/[^\w.-]/g, "_");
+  const path = `${userId}/${personId}/${crypto.randomUUID()}-${safeFileName}`;
+  const uploaded = await client.storage.from("authorized-pickup-ids").upload(path, file, { upsert: false, contentType: file.type });
+  if (uploaded.error) return { data: null, error: uploaded.error };
+  const inserted = await client.from("authorized_pickup_persons").insert({
+    id: personId,
+    user_id: userId,
+    ...person,
+    id_document_path: path,
+  }).select("id,user_id,full_name,phone,relationship,id_type,id_document_path,created_at").single<AuthorizedPickupPerson>();
+  if (inserted.error) {
+    const cleanup = await client.storage.from("authorized-pickup-ids").remove([path]);
+    if (cleanup.error) throw new Error(`${inserted.error.message} The uploaded identification file could not be cleaned up: ${cleanup.error.message}`);
+  }
+  return inserted;
+}
+export async function getAuthorizedPickupIdUrl(filePath: string) { return requireClient().storage.from("authorized-pickup-ids").createSignedUrl(filePath, 300); }
 export async function deleteInvoice(id: string) { return requireClient().from("invoices").delete().eq("id", id); }
 export async function deletePayment(id: string) { return requireClient().from("payments").delete().eq("id", id); }
 export async function listNotifications(userId: string) { return requireClient().from("notifications").select("id,type,title,body,read_at,created_at").eq("user_id", userId).order("created_at", { ascending: false }).limit(50).returns<AdminNotification[]>(); }

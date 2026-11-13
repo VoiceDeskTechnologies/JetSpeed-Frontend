@@ -7,7 +7,7 @@ import {
 import { trackPackage } from "./lib/api";
 import { Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { supabase, supabaseConfigured } from "./lib/supabase";
-import { Announcement, calculateCollectionAmount, createAnnouncement, createPackage, createShippingService, createSupportTicket, deleteAnnouncement, deleteInvoice, deletePackage, deletePayment, getInvoiceDownloadUrl, getProfile, getSession, listAllInvoices, listAllPayments, listAllShipments, listAllSupportTickets, listAnnouncements, listInvoices, listNotifications, listProfiles, listPublicAnnouncements, listShipments, listShippingServices, listSiteSettings, listSupportTickets, listTrackingEvents, markNotificationRead, recordPayment, saveSiteSetting, sendPaymentReceipt, sendWarehousePackageEmail, signIn, signUp, signOut, syncFreightForwarderAccount, updateAnnouncement, updateDeliveryPreference, updateEmail, updatePackageInvoice, updatePackageWeight, updatePassword, updateProfile, updateShipmentMilestone, updateShippingService, updateUserRole, uploadInvoiceFile } from "./lib/data";
+import { Announcement, AuthorizedPickupPerson, calculateCollectionAmount, createAnnouncement, createAuthorizedPickupPerson, createPackage, createShippingService, createSupportTicket, deleteAnnouncement, deleteInvoice, deletePackage, deletePayment, getAuthorizedPickupIdUrl, getInvoiceDownloadUrl, getProfile, getSession, listAllInvoices, listAllPayments, listAllShipments, listAllSupportTickets, listAnnouncements, listAuthorizedPickupPersons, listInvoices, listNotifications, listProfiles, listPublicAnnouncements, listShipments, listShippingServices, listSiteSettings, listSupportTickets, listTrackingEvents, markNotificationRead, recordPayment, saveSiteSetting, sendPaymentReceipt, sendWarehousePackageEmail, signIn, signUp, signOut, syncFreightForwarderAccount, updateAnnouncement, updateDeliveryPreference, updateEmail, updatePackageInvoice, updatePackageWeight, updatePassword, updateProfile, updateShipmentMilestone, updateShippingService, updateUserRole, uploadInvoiceFile } from "./lib/data";
 
 type View = "home" | "services" | "rates" | "track" | "about" | "contact" | "help" | "terms" | "privacy" |
   "customer" | "admin";
@@ -115,7 +115,7 @@ function ContactPage({ contact }: { contact: ContactSettings }) { const whatsapp
 function HelpPage() { const faqs = [{ question: "How do I get a US address?", answer: "Create a JetSpeed account and verify your email. Your personal US warehouse address and identification code will appear in your customer portal. Use the code on Address Line 2 for every online order." }, { question: "What items can I ship?", answer: "Most ordinary consumer goods can be shipped, including clothing, electronics, household items, and packaged goods. Do not send weapons, illegal drugs, explosives, perishable food, cash, or other restricted items. If you are unsure, contact JetSpeed before ordering." }, { question: "How are duties and taxes calculated?", answer: "Customs duties, GCT, and other government charges are based on the item description, declared value, classification, and current Jamaican customs rules. These charges are separate from JetSpeed shipping fees and are payable when assessed." }, { question: "Where is my package delivered?", answer: "After arrival and processing in Jamaica, you can choose an available local delivery option or arrange collection through the delivery preferences in your account. Delivery availability and fees depend on your parish and address." }, { question: "How do I update my account?", answer: "Open Account Settings in your customer portal to update your name, phone number, delivery location, notification preferences, and preferred currency. Save your changes before leaving the page." }, { question: "Can I combine shipments?", answer: "Eligible packages may be consolidated after they arrive at the JetSpeed warehouse. Consolidation can reduce the number of shipments, but it may change the handling time and total charge. Submit a request before payment if you want packages reviewed for consolidation." }]; return <section className="faq-grid">{faqs.map(({ question, answer }) => <details className="faq" key={question}><summary>{question}<ChevronRight size={17} /></summary><p>{answer}</p></details>)}</section>; }
 function LegalPage({ type }: { type: View }) { return <section className="content-card legal"><h2>{type === "terms" ? "Using our services" : "Your information matters"}</h2>{Array.from({ length: 5 }, (_, i) => <div key={i}><h3>{i + 1}. {type === "terms" ? ["Service terms","Prohibited items","Payment and claims","Delivery","Changes"][i] : ["Information we collect","How we use information","Sharing","Security","Your choices"][i]}</h3><p>JetSpeed Couriers provides clear, responsible shipping services. This section explains our practices, responsibilities, and the choices available to customers. Please contact support if you need clarification.</p></div>)}</section>; }
 
-const customerMenus = [["Dashboard", LayoutDashboard], ["Track Package", Search], ["Upload Invoice", Upload], ["My Shipments", Package], ["Account Settings", Settings], ["Support", HelpCircle]] as const;
+const customerMenus = [["Dashboard", LayoutDashboard], ["Track Package", Search], ["Upload Invoice", Upload], ["My Shipments", Package], ["Authorized Pickup", Users], ["Account Settings", Settings], ["Support", HelpCircle]] as const;
 const adminMenus = [["Dashboard", LayoutDashboard], ["Manage Users", Users], ["Shipments", Package], ["Invoices", FileText], ["Payments", WalletCards], ["Reports", BarChart3], ["Services", Truck], ["Announcements & Updates", Bell], ["Settings", Settings], ["System Logs", Clock3], ["Support Tickets", MessageSquare]] as const;
 function Portal({ admin, userId, email, role, contact, onBack, onLogout }: { admin: boolean; userId: string | null; email: string; role: "customer" | "support" | "admin"; contact: ContactSettings; onBack: () => void; onLogout: () => Promise<void> }) {
   const [active, setActive] = useState("Dashboard"); const [profile, setProfile] = useState<any>(null); const [warehouse, setWarehouse] = useState<any>({ line1: "2033 W McNab Rd, Suite S", city: "Pompano Beach", state: "Florida", zip: "33069" }); const [profileName, setProfileName] = useState(""); const [mobileMenuOpen, setMobileMenuOpen] = useState(false); const [notifications, setNotifications] = useState<any[]>([]); const [notificationsOpen, setNotificationsOpen] = useState(false); const [menuCounts, setMenuCounts] = useState<Record<string, number>>({}); const [menuTotals, setMenuTotals] = useState<Record<string, number>>({}); const menus = admin ? (role === "support" ? adminMenus.filter(([name]) => ["Dashboard", "Manage Users", "Shipments", "Invoices", "Payments", "Support Tickets"].includes(name)) : adminMenus) : customerMenus;
@@ -159,6 +159,7 @@ function PortalContent({ active, admin, canChangeRoles, userId, profile, warehou
   const [invoices, setInvoices] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [selectedCustomer, setSelectedCustomer] = useState<any>(null);
   useEffect(() => {
     if (!supabaseConfigured || !userId) { setLoading(false); return; }
     Promise.all([admin ? listAllShipments() : listShipments(userId), admin ? listAllSupportTickets() : listSupportTickets(userId), admin ? listProfiles() : Promise.resolve({ data: [], error: null })]).then(async ([ships, support, users]) => {
@@ -177,7 +178,7 @@ function PortalContent({ active, admin, canChangeRoles, userId, profile, warehou
   if (!userId) return <section className="portal-card"><h2>Sign in required</h2><p className="muted">Your account session is not available.</p></section>;
   if (loading) return <section className="portal-card"><h2>Loading your account…</h2></section>;
   if (error) return <section className="portal-card"><h2>Unable to load your account</h2><p className="form-error">{error}</p></section>;
-  if (admin) return <AdminWorkspace active={active} tickets={tickets} shipments={shipments} profiles={profiles} payments={payments} invoices={invoices} userId={userId} canChangeRoles={canChangeRoles} onShipmentCreated={shipment => setShipments(current => [shipment, ...current])} onShipmentDeleted={packageId => setShipments(current => current.filter(shipment => shipment.id !== packageId))} />;
+  if (admin) return <><AdminWorkspace active={active} tickets={tickets} shipments={shipments} profiles={profiles} payments={payments} invoices={invoices} userId={userId} canChangeRoles={canChangeRoles} onViewCustomer={setSelectedCustomer} onShipmentCreated={shipment => setShipments(current => [shipment, ...current])} onShipmentDeleted={packageId => setShipments(current => current.filter(shipment => shipment.id !== packageId))} />{selectedCustomer && <CustomerDetailsModal profile={selectedCustomer} shipments={shipments.filter(shipment => shipment.customer_id === selectedCustomer.id)} onClose={() => setSelectedCustomer(null)} />}</>;
   return <CustomerWorkspace active={active} shipments={shipments} profile={profile} warehouse={warehouse} contact={contact} userId={userId} onNavigate={onNavigate} onTicket={async (ticket) => { const result = await createSupportTicket(userId, ticket); if (result.error) throw result.error; setTickets(current => [result.data!, ...current]); }} />;
 }
 
@@ -192,9 +193,146 @@ function CustomerWorkspace({ active, shipments, profile, warehouse, contact, use
   if (active === "Dashboard") return <><div className="stats"><Stat icon={<Package />} value={String(shipments.length)} label="Total shipments" /><Stat icon={<Truck />} value={String(shipments.filter(s => s.status.toLowerCase().includes("transit")).length)} label="In transit" accent /><Stat icon={<CheckCircle2 />} value={String(shipments.filter(s => s.status.toLowerCase() === "delivered").length)} label="Delivered" green /></div><section className="portal-card"><div className="card-title"><div><h2>Dashboard overview</h2><p className="muted">Your latest delivery activity and account summary.</p></div><span className="status">Account active</span></div><div className="dashboard-panels"><div><h3>Your US shipping address</h3><p><b>{profile?.full_name || "Your name"}</b><br />{warehouse.line1}<br /><strong>{profile?.identifier_code || "JSC pending"}</strong><br />{warehouse.city}, {warehouse.state} {warehouse.zip}</p><small className="muted">Use your mailbox code on Address Line 2 for every order.</small></div><div><h3>Next delivery</h3><p>{shipments[0] ? <><b>{shipments[0].tracking_number}</b> is {shipments[0].status.toLowerCase()} to {shipments[0].destination}.</> : "No shipments are available yet."}</p><div className="progress"><span /></div></div></div></section><ShippingCalculator /></>;
   if (active === "Track Package") { const milestones = ["label_created", "received_at_miami", "in_transit", "ready_for_pickup"]; const labels: Record<string, string> = { label_created: "Label created", received_at_miami: "Received at Miami hub", in_transit: "In transit", ready_for_pickup: "Ready for pickup/Delivery" }; const current = trackingEvents.length ? milestones.indexOf(trackingEvents[trackingEvents.length - 1].status) : -1; return <section className="portal-card" id="portal-track"><h2>Track Package</h2><p className="muted">Enter a tracking number to see its latest scan and delivery timeline.</p><form className="inline-form" onSubmit={submitTracking}><input aria-label="Tracking number" value={tracking} onChange={e => setTracking(e.target.value)} placeholder="e.g. JS250001" /><button className="button">Track package</button></form>{trackingResult && <div className="notice"><CheckCircle2 size={17} />{trackingResult}</div>}<div className="timeline"><h3>Shipment milestones</h3><div className="milestone-list">{milestones.map((milestone, index) => <span className={index <= current ? "milestone complete" : "milestone"} key={milestone}>{index <= current ? "✓" : "○"} {labels[milestone]}{index < milestones.length - 1 && <i>→</i>}</span>)}</div>{trackingEvents.map(event => <p key={event.id}><b>{event.description || labels[event.status] || event.status}</b><br /><span className="muted">{event.location || "JetSpeed network"} · {new Date(event.created_at).toLocaleString()}</span></p>)}</div></section>; }
   if (active === "Upload Invoice") return <InvoiceUpload shipments={shipments} userId={userId} />;
+  if (active === "Authorized Pickup") return <AuthorizedPickupWorkspace userId={userId} />;
   if (active === "My Shipments") return <section className="portal-card"><div className="card-title"><div><h2>My Shipments</h2><p className="muted">Search your shipment history and open a shipment detail.</p></div></div><div className="toolbar"><input aria-label="Search shipments" value={query} onChange={e => setQuery(e.target.value)} placeholder="Search tracking number or route" /><select aria-label="Filter shipments"><option>All statuses</option><option>In transit</option><option>Delivered</option></select></div><div className="table-wrap"><table><thead><tr><th>Tracking number</th><th>Status</th><th>Route</th><th>Date</th><th>Action</th></tr></thead><tbody>{visibleShipments.length ? visibleShipments.map(s => <tr key={s.id}><td><b>{s.tracking_number}</b></td><td><span className={"status " + (s.status === "in_transit" ? "in-transit" : "")}>{s.status}</span></td><td>{s.origin} → {s.destination}</td><td>{new Date(s.created_at).toLocaleDateString()}</td><td><button className="text-button" onClick={() => setTracking(s.tracking_number)}>View details <ChevronRight size={14} /></button><button className="text-button" onClick={() => onNavigate("Upload Invoice")}>Upload invoice</button></td></tr>) : <tr><td colSpan={5}>No shipments found.</td></tr>}</tbody></table></div></section>;
   if (active === "Account Settings") return <AccountSettings userId={userId} />;
   return <section className="portal-card"><div className="card-title"><div><h2>Support</h2><p className="muted">Get help from our shipping team.</p></div><a className="button button-small" href={`https://wa.me/${contact.whatsapp_phone.replace(/\D/g, "")}`} target="_blank" rel="noreferrer">WhatsApp us</a></div><p><a href={`mailto:${contact.support_email}`}>Email {contact.support_email}</a></p><form onSubmit={submitTicket}><div className="form-grid">{field("Subject", ticket.subject, v => setTicket({ ...ticket, subject: v }))}<label>Category<select value={ticket.category} onChange={e => setTicket({ ...ticket, category: e.target.value })}><option>Shipment</option><option>Billing</option><option>Account</option><option>Other</option></select></label><label>Priority<select value={ticket.priority} onChange={e => setTicket({ ...ticket, priority: e.target.value })}><option>Low</option><option>Normal</option><option>High</option></select></label></div><label>Message<textarea rows={5} value={ticket.message} onChange={e => setTicket({ ...ticket, message: e.target.value })} required /></label><button className="button" type="submit">Send ticket</button>{ticketError && <p className="form-error">{ticketError}</p>}{sent && <div className="notice"><CheckCircle2 size={17} />Ticket submitted successfully. Our team will respond soon.</div>}</form></section>;
+}
+
+function AuthorizedPickupWorkspace({ userId }: { userId: string }) {
+  const [people, setPeople] = useState<AuthorizedPickupPerson[]>([]);
+  const [form, setForm] = useState({ full_name: "", phone: "", relationship: "", id_type: "national_id" as AuthorizedPickupPerson["id_type"] });
+  const [file, setFile] = useState<File | null>(null);
+  const [fileInputKey, setFileInputKey] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    listAuthorizedPickupPersons(userId).then(({ data, error: resultError }) => {
+      if (!active) return;
+      if (resultError) setError(resultError.message);
+      else setPeople(data ?? []);
+    }).catch(loadError => {
+      if (active) setError(loadError instanceof Error ? loadError.message : "Unable to load authorized pickup persons.");
+    }).finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [userId]);
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    setError(""); setMessage("");
+    if (!file) { setError("Choose an identification file to upload."); return; }
+    if (!["application/pdf", "image/jpeg", "image/png"].includes(file.type)) {
+      setError("Identification must be a PDF, JPG, or PNG file.");
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) { setError("Identification files must be 10 MB or smaller."); return; }
+    setSaving(true);
+    try {
+      const result = await createAuthorizedPickupPerson(userId, {
+        full_name: form.full_name.trim(),
+        phone: form.phone.trim(),
+        relationship: form.relationship.trim() || null,
+        id_type: form.id_type,
+      }, file);
+      if (result.error) { setError(result.error.message); return; }
+      if (!result.data) { setError("The authorized pickup person could not be saved."); return; }
+      setPeople(current => [result.data!, ...current]);
+      setForm({ full_name: "", phone: "", relationship: "", id_type: "national_id" });
+      setFile(null);
+      setFileInputKey(current => current + 1);
+      setMessage("Authorized pickup person added.");
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Unable to save the authorized pickup person.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const viewId = async (person: AuthorizedPickupPerson) => {
+    setError("");
+    try {
+      const result = await getAuthorizedPickupIdUrl(person.id_document_path);
+      if (result.error || !result.data?.signedUrl) { setError(result.error?.message || "Unable to open the identification file."); return; }
+      window.open(result.data.signedUrl, "_blank", "noopener,noreferrer");
+    } catch (viewError) {
+      setError(viewError instanceof Error ? viewError.message : "Unable to open the identification file.");
+    }
+  };
+
+  return <section className="portal-card authorized-pickup-workspace">
+    <h2>Authorized Pickup</h2>
+    <p className="muted">Add someone you trust to collect packages on your behalf. Upload a clear photo or scan of their identification. Only you and JetSpeed staff can access these files.</p>
+    <form className="pickup-person-form" onSubmit={submit}>
+      <div className="form-grid">
+        <label>Full name<input value={form.full_name} onChange={event => setForm(current => ({ ...current, full_name: event.target.value }))} maxLength={140} required /></label>
+        <label>Phone number<input type="tel" value={form.phone} onChange={event => setForm(current => ({ ...current, phone: event.target.value }))} maxLength={40} required /></label>
+        <label>Relationship to you <span className="muted">(optional)</span><input value={form.relationship} onChange={event => setForm(current => ({ ...current, relationship: event.target.value }))} maxLength={80} placeholder="e.g. family member" /></label>
+        <label>Identification type<select value={form.id_type} onChange={event => setForm(current => ({ ...current, id_type: event.target.value as AuthorizedPickupPerson["id_type"] }))}><option value="national_id">National ID card</option><option value="drivers_license">Driver's license</option><option value="passport">Passport</option><option value="other">Other government ID</option></select></label>
+      </div>
+      <label className="pickup-file-label">Identification document<input key={fileInputKey} type="file" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" onChange={event => setFile(event.target.files?.[0] ?? null)} required /><small className="muted">PDF, JPG, or PNG; 10 MB maximum.</small></label>
+      <button className="button" type="submit" disabled={saving}>{saving ? "Saving..." : "Add pickup person"}</button>
+      {error && <p className="form-error">{error}</p>}
+      {message && <div className="notice"><CheckCircle2 size={17} />{message}</div>}
+    </form>
+    <div className="pickup-person-list">
+      <h3>People authorized to collect</h3>
+      {loading ? <p className="muted">Loading authorized pickup persons...</p> : people.length ? people.map(person => <article className="pickup-person-card" key={person.id}>
+        <div><strong>{person.full_name}</strong><span>{person.phone}{person.relationship ? ` · ${person.relationship}` : ""}</span><small>{person.id_type.replace("_", " ")} · Added {new Date(person.created_at).toLocaleDateString()}</small></div>
+        <button className="button button-small" type="button" onClick={() => void viewId(person)}><FileText size={15} /> View ID</button>
+      </article>) : <p className="muted">No authorized pickup persons have been added.</p>}
+    </div>
+  </section>;
+}
+
+function CustomerDetailsModal({ profile, shipments, onClose }: { profile: any; shipments: any[]; onClose: () => void }) {
+  const [people, setPeople] = useState<AuthorizedPickupPerson[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let active = true;
+    listAuthorizedPickupPersons(profile.id).then(({ data, error: resultError }) => {
+      if (!active) return;
+      if (resultError) setError(resultError.message);
+      else setPeople(data ?? []);
+    }).catch(loadError => {
+      if (active) setError(loadError instanceof Error ? loadError.message : "Unable to load authorized pickup persons.");
+    }).finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [profile.id]);
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [onClose]);
+  const viewId = async (person: AuthorizedPickupPerson) => {
+    setError("");
+    try {
+      const result = await getAuthorizedPickupIdUrl(person.id_document_path);
+      if (result.error || !result.data?.signedUrl) { setError(result.error?.message || "Unable to open the identification file."); return; }
+      window.open(result.data.signedUrl, "_blank", "noopener,noreferrer");
+    } catch (viewError) {
+      setError(viewError instanceof Error ? viewError.message : "Unable to open the identification file.");
+    }
+  };
+  const warehouseAddress = [profile.us_address_line1, profile.us_address_city, profile.us_address_state, profile.us_address_zip].filter(Boolean).join(", ");
+  return <div className="modal-backdrop customer-details-backdrop" onMouseDown={onClose}>
+    <section className="payment-modal customer-detail-modal" role="dialog" aria-modal="true" aria-labelledby="customer-detail-title" onMouseDown={event => event.stopPropagation()}>
+      <button className="modal-close" onClick={onClose} aria-label="Close customer details"><X /></button>
+      <h2 id="customer-detail-title">{profile.full_name || "Customer details"}</h2>
+      <p className="muted">Customer account and package overview.</p>
+      {error && <p className="form-error">{error}</p>}
+      <div className="customer-detail-grid">
+        <section><h3>Contact information</h3><p><strong>Email</strong><br />{profile.email || "Not provided"}</p><p><strong>Phone</strong><br />{profile.phone || "Not provided"}</p><p><strong>Identifier</strong><br />{profile.identifier_code || "Pending"}</p></section>
+        <section><h3>Shipping & collection address</h3><p><strong>US shipping address</strong><br />{warehouseAddress || "Not available"}</p><p><strong>Collection preference</strong><br />{profile.delivery_preference === "delivery" ? "Delivery" : "Pickup"}</p><p><strong>Pickup location</strong><br />{profile.pickup_location || "Not specified"}</p></section>
+      </div>
+      <section className="customer-detail-section"><h3>Packages ({shipments.length})</h3><div className="table-wrap"><table><thead><tr><th>Tracking number</th><th>Status</th><th>Route</th><th>Created</th></tr></thead><tbody>{shipments.length ? shipments.map(shipment => <tr key={shipment.id}><td><b>{shipment.tracking_number}</b></td><td><span className="status">{shipment.status.replace(/_/g, " ")}</span></td><td>{shipment.origin} → {shipment.destination}</td><td>{new Date(shipment.created_at).toLocaleDateString()}</td></tr>) : <tr><td colSpan={4}>No packages on this account.</td></tr>}</tbody></table></div></section>
+      <section className="customer-detail-section"><h3>Authorized pickup persons</h3>{loading ? <p className="muted">Loading authorized pickup persons...</p> : people.length ? <div className="pickup-person-list">{people.map(person => <article className="pickup-person-card" key={person.id}><div><strong>{person.full_name}</strong><span>{person.phone}{person.relationship ? ` · ${person.relationship}` : ""}</span><small>{person.id_type.replace("_", " ")}</small></div><button className="button button-small" type="button" onClick={() => void viewId(person)}><FileText size={15} /> View ID</button></article>)}</div> : <p className="muted">No authorized pickup persons on file.</p>}</section>
+    </section>
+  </div>;
 }
 
 function InvoiceUpload({ shipments, userId }: { shipments: any[]; userId: string }) {
@@ -272,7 +410,7 @@ function buildPaymentSeries(rows: any[]) {
 function LiveChart({ title, data, dataKey, color, empty }: { title: string; data: any[]; dataKey: string; color: string; empty: boolean }) {
   return <div className="chart-card"><h3>{title}</h3>{empty ? <p className="muted chart-empty">No live records available for this chart.</p> : <ResponsiveContainer width="100%" height={230}>{dataKey === "revenue" ? <BarChart data={data}><CartesianGrid strokeDasharray="3 3" stroke="#e4eaf3" /><XAxis dataKey="day" /><YAxis /><Tooltip formatter={(value) => [`JMD $${Number(value ?? 0).toLocaleString("en-JM")}`, "Revenue"]} /><Bar dataKey={dataKey} fill={color} radius={[5, 5, 0, 0]} /></BarChart> : <LineChart data={data}><CartesianGrid strokeDasharray="3 3" stroke="#e4eaf3" /><XAxis dataKey="day" /><YAxis allowDecimals={false} /><Tooltip /><Line type="monotone" dataKey={dataKey} stroke={color} strokeWidth={3} dot={{ r: 3 }} /></LineChart>}</ResponsiveContainer>}</div>;
 }
-function AdminWorkspace({ active, tickets, shipments, profiles, payments, invoices, userId, canChangeRoles, onShipmentCreated, onShipmentDeleted }: { active: string; tickets: Ticket[]; shipments: any[]; profiles: any[]; payments: any[]; invoices: any[]; userId: string; canChangeRoles: boolean; onShipmentCreated: (shipment: any) => void; onShipmentDeleted: (packageId: string) => void }) {
+function AdminWorkspace({ active, tickets, shipments, profiles, payments, invoices, userId, canChangeRoles, onViewCustomer, onShipmentCreated, onShipmentDeleted }: { active: string; tickets: Ticket[]; shipments: any[]; profiles: any[]; payments: any[]; invoices: any[]; userId: string; canChangeRoles: boolean; onViewCustomer: (profile: any) => void; onShipmentCreated: (shipment: any) => void; onShipmentDeleted: (packageId: string) => void }) {
   const [roleChanges, setRoleChanges] = useState<Record<string, "customer" | "support" | "admin">>({});
   const [userSearch, setUserSearch] = useState("");
   const [roleMessage, setRoleMessage] = useState("");
@@ -302,7 +440,27 @@ function AdminWorkspace({ active, tickets, shipments, profiles, payments, invoic
   if (active === "Payments") return <PaymentWorkspace shipments={shipments} payments={payments} userId={userId} />;
   if (active === "Invoices") return <section className="portal-card"><div className="card-title"><div><h2>Invoices</h2><p className="muted">Uploaded invoices loaded from Supabase.</p></div></div><div className="table-wrap"><table><thead><tr><th>Invoice</th><th>Status</th><th>Created</th><th>Action</th></tr></thead><tbody>{localInvoices.length ? localInvoices.map(invoice => <tr key={invoice.id}><td><b>{invoice.invoice_number || "Uploaded invoice"}</b></td><td><span className="status">{invoice.status}</span></td><td>{new Date(invoice.created_at).toLocaleString()}</td><td><div className="record-actions">{invoice.file_path && <button className="icon-action email" onClick={async () => { const result = await getInvoiceDownloadUrl(invoice.file_path); if (result.error || !result.data?.signedUrl) window.alert(result.error?.message || "Unable to open invoice."); else window.open(result.data.signedUrl, "_blank", "noopener,noreferrer"); }} aria-label="View or download invoice" title="View or download invoice"><FileText size={16} /></button>}<button className="icon-action danger" onClick={async () => { if (!window.confirm("Delete this invoice record?")) return; const result = await deleteInvoice(invoice.id); if (result.error) window.alert(result.error.message); else setLocalInvoices(current => current.filter(item => item.id !== invoice.id)); }} aria-label="Delete invoice" title="Delete invoice"><Trash2 size={16} /></button></div></td></tr>) : <tr><td colSpan={4}>No invoice records are available.</td></tr>}</tbody></table></div></section>;
   if (active === "Support Tickets") return <section className="portal-card"><h2>Support Tickets</h2><p className="muted">Tickets submitted by customers. Use the contact actions to reply directly.</p><div className="table-wrap"><table><thead><tr><th>ID</th><th>Customer / query</th><th>Category</th><th>Priority</th><th>Status</th><th>Reply</th></tr></thead><tbody>{tickets.length ? tickets.map(t => { const contact = (t as any).profiles || {}; const firstName = contact.full_name?.split(" ")[0] || "there"; const reply = `Hi ${firstName},\n\nThank you for contacting JetSpeed Couriers regarding "${t.subject}".\n\nWe have reviewed your message:\n"${t.message}"\n\nOur support team will assist you with the next steps.\n\nRegards,\nJetSpeed Couriers`; return <tr key={t.id}><td><b>{t.id.slice(0, 8)}</b></td><td><b>{contact.full_name || "Customer"}</b><br /><small>{t.subject}: {t.message}</small></td><td>{t.category}</td><td><span className="status">{t.priority}</span></td><td>{t.status}</td><td><div className="notification-actions">{contact.phone && <a className="icon-action whatsapp" href={`https://wa.me/${String(contact.phone).replace(/\D/g, "")}?text=${encodeURIComponent(reply)}`} target="_blank" rel="noreferrer" title="Reply on WhatsApp" aria-label="Reply on WhatsApp"><MessageCircle size={17} /></a>}{contact.email && <a className="icon-action email" href={`mailto:${contact.email}?subject=${encodeURIComponent(`Re: ${t.subject}`)}&body=${encodeURIComponent(reply)}`} title="Reply by email" aria-label="Reply by email"><Mail size={17} /></a>}{!contact.phone && !contact.email && <span className="muted">No contact details</span>}</div></td></tr>; }) : <tr><td colSpan={6}>No customer tickets yet.</td></tr>}</tbody></table></div></section>;
-  if (active === "Manage Users") { const visibleProfiles = profiles.filter(profile => `${profile.full_name || ""} ${profile.identifier_code || ""} ${profile.phone || ""} ${profile.email || ""}`.toLowerCase().includes(userSearch.toLowerCase())); return <section className="portal-card"><div className="card-title"><div><h2>Manage Users</h2><p className="muted">Customer profiles loaded from Supabase.</p></div></div><div className="toolbar"><input placeholder="Search name, WhatsApp, email, or identifier code" value={userSearch} onChange={event => setUserSearch(event.target.value)} /></div>{roleMessage && <div className={roleMessage.startsWith("Unable") ? "form-error" : "notice"}>{roleMessage}</div>}<div className="table-wrap"><table><thead><tr><th>Name / identifier</th><th>Contact</th><th>Collection</th><th>Role</th><th>Joined</th><th>Action</th></tr></thead><tbody>{visibleProfiles.length ? visibleProfiles.map(profile => { const message = `Hi ${profile.full_name?.split(" ")[0] || "there"}, this is JetSpeed Couriers. We are contacting you regarding your account or shipment update.`; return <tr key={profile.id}><td><b>{profile.full_name || "Unnamed customer"}</b><small className="identifier-code">{profile.identifier_code || "Identifier pending"}</small></td><td><div className="notification-actions">{profile.phone && <a className="icon-action whatsapp" href={`https://wa.me/${String(profile.phone).replace(/\D/g, "")}?text=${encodeURIComponent(message)}`} target="_blank" rel="noreferrer" aria-label="Message user on WhatsApp" title="Message on WhatsApp"><MessageCircle size={16} /></a>}{profile.email && <a className="icon-action email" href={`mailto:${profile.email}?subject=${encodeURIComponent("JetSpeed Couriers update")}&body=${encodeURIComponent(message)}`} aria-label="Email user" title="Email user"><Mail size={16} /></a>}{!profile.phone && !profile.email && <span className="muted">No contact</span>}</div></td><td><span className="status">{profile.delivery_preference === "delivery" ? "Delivery" : "Pickup"}</span></td><td>{canChangeRoles ? <select value={roleChanges[profile.id] || profile.role} onChange={event => setRoleChanges(current => ({ ...current, [profile.id]: event.target.value as "customer" | "support" | "admin" }))}><option value="customer">Customer</option><option value="support">Support</option><option value="admin">Admin</option></select> : <span className="status">{profile.role}</span>}</td><td>{profile.created_at ? new Date(profile.created_at).toLocaleDateString() : "—"}</td><td>{canChangeRoles && <button className="button button-small" disabled={!roleChanges[profile.id] || roleChanges[profile.id] === profile.role} onClick={() => saveRole(profile.id)}>Save role</button>}</td></tr>; }) : <tr><td colSpan={6}>No matching user profiles found.</td></tr>}</tbody></table></div></section>; }
+  if (active === "Manage Users") {
+    const visibleProfiles = profiles.filter(profile => `${profile.full_name || ""} ${profile.identifier_code || ""} ${profile.phone || ""} ${profile.email || ""}`.toLowerCase().includes(userSearch.toLowerCase()));
+    return <section className="portal-card">
+      <div className="card-title"><div><h2>Manage Users</h2><p className="muted">Customer profiles loaded from Supabase. Select a customer to see their account and package details.</p></div></div>
+      <div className="toolbar"><input placeholder="Search name, WhatsApp, email, or identifier code" value={userSearch} onChange={event => setUserSearch(event.target.value)} /></div>
+      {roleMessage && <div className={roleMessage.startsWith("Unable") ? "form-error" : "notice"}>{roleMessage}</div>}
+      <div className="table-wrap"><table><thead><tr><th>Name / identifier</th><th>Contact</th><th>Collection</th><th>Role</th><th>Joined</th><th>Action</th></tr></thead>
+        <tbody>{visibleProfiles.length ? visibleProfiles.map(profile => {
+          const message = `Hi ${profile.full_name?.split(" ")[0] || "there"}, this is JetSpeed Couriers. We are contacting you regarding your account or shipment update.`;
+          return <tr key={profile.id}>
+            <td><button className="customer-name-button" onClick={() => onViewCustomer(profile)}>{profile.full_name || "Unnamed customer"}</button><small className="identifier-code">{profile.identifier_code || "Identifier pending"}</small></td>
+            <td><div className="notification-actions">{profile.phone && <a className="icon-action whatsapp" href={`https://wa.me/${String(profile.phone).replace(/\D/g, "")}?text=${encodeURIComponent(message)}`} target="_blank" rel="noreferrer" aria-label="Message user on WhatsApp" title="Message on WhatsApp"><MessageCircle size={16} /></a>}{profile.email && <a className="icon-action email" href={`mailto:${profile.email}?subject=${encodeURIComponent("JetSpeed Couriers update")}&body=${encodeURIComponent(message)}`} aria-label="Email user" title="Email user"><Mail size={16} /></a>}{!profile.phone && !profile.email && <span className="muted">No contact</span>}</div></td>
+            <td><span className="status">{profile.delivery_preference === "delivery" ? "Delivery" : "Pickup"}</span></td>
+            <td>{canChangeRoles ? <select value={roleChanges[profile.id] || profile.role} onChange={event => setRoleChanges(current => ({ ...current, [profile.id]: event.target.value as "customer" | "support" | "admin" }))}><option value="customer">Customer</option><option value="support">Support</option><option value="admin">Admin</option></select> : <span className="status">{profile.role}</span>}</td>
+            <td>{profile.created_at ? new Date(profile.created_at).toLocaleDateString() : "—"}</td>
+            <td>{canChangeRoles && <button className="button button-small" disabled={!roleChanges[profile.id] || roleChanges[profile.id] === profile.role} onClick={() => saveRole(profile.id)}>Save role</button>}</td>
+          </tr>;
+        }) : <tr><td colSpan={6}>No matching user profiles found.</td></tr>}</tbody>
+      </table></div>
+    </section>;
+  }
   if (active === "Shipments") return <section className="portal-card"><div className="card-title"><div><h2>Shipments</h2><p className="muted">Add the received package weight to calculate the customer’s JMD collection amount.</p></div><button className="button button-small" onClick={() => setNewShipmentOpen(true)}>+ New shipment</button></div><div className="table-wrap"><table><thead><tr><th>Package</th><th>Weight / collection</th><th>Milestone</th><th>Route</th><th>Invoice</th><th>Customer alerts</th><th>Action</th></tr></thead><tbody>{shipments.length ? shipments.map(shipment => { const selectedStatus = statusById[shipment.id] || shipment.status; const canNotify = selectedStatus === "received_at_miami" || selectedStatus === "ready_for_pickup"; const amountValue = savedAmounts[shipment.id] ?? shipment.collection_amount_jmd; const amount = Number(amountValue || 0).toLocaleString("en-JM"); const firstName = shipment.customer_name?.split(" ")[0] || "there"; const message = selectedStatus === "received_at_miami" ? `Hi ${firstName}, your JetSpeed package ${shipment.tracking_number} has arrived at our Miami warehouse and is being prepared for shipment to Jamaica. We will update you as it moves through our network.` : `Hi ${firstName}, your JetSpeed package ${shipment.tracking_number} is ready for pickup/delivery. The expected collection amount is JMD $${amount}. Please contact us if you need delivery assistance.`; const emailSubject = selectedStatus === "received_at_miami" ? `JetSpeed package ${shipment.tracking_number} arrived at our warehouse` : `JetSpeed package ${shipment.tracking_number} is ready`; return <tr key={shipment.id}><td><b>{shipment.tracking_number}</b></td><td><input className="weight-input" type="number" min="0.1" step="0.1" value={weightById[shipment.id] ?? shipment.weight_lb ?? ""} onChange={event => setWeightById(current => ({ ...current, [shipment.id]: event.target.value }))} placeholder="lb" />{amountValue ? <small className="collection-amount">JMD ${amount}</small> : <small className="muted">Add weight</small>}</td><td><select value={selectedStatus} onChange={event => setStatusById(current => ({ ...current, [shipment.id]: event.target.value }))}><option value="label_created">Label created</option><option value="received_at_miami">Received at Miami hub</option><option value="in_transit">In transit</option><option value="ready_for_pickup">Ready for pickup/Delivery</option></select></td><td>{shipment.origin} → {shipment.destination}</td><td><span className="invoice-status"><FileText size={15} /> Invoice <i className={shipment.invoice_uploaded ? "pulse-dot uploaded" : "pulse-dot missing"} /></span></td><td>{canNotify ? <div className="notification-actions"><a className="icon-action whatsapp" href={`https://wa.me/${String(shipment.customer_phone || "").replace(/\D/g, "")}?text=${encodeURIComponent(message)}`} target="_blank" rel="noreferrer" title="Send WhatsApp template" aria-label="Send WhatsApp template"><MessageCircle size={17} /></a><button className="icon-action email" type="button" onClick={async () => { try { await sendWarehousePackageEmail(shipment.id); } catch (error) { window.alert(error instanceof Error ? error.message : "Unable to send warehouse email."); } }} title="Send branded warehouse email" aria-label="Send branded warehouse email"><Mail size={17} /></button></div> : <span className="muted">Available at warehouse or ready stage</span>}</td><td><div className="shipment-actions"><button className="button button-small" onClick={() => { saveWeight(shipment); saveMilestone(shipment); }}>Save package</button><button className="icon-action danger" type="button" onClick={async () => { if (!window.confirm(`Delete shipment ${shipment.tracking_number}? This cannot be undone.`)) return; const result = await deletePackage(shipment.id); if (result.error) window.alert(result.error.message); else onShipmentDeleted(shipment.id); }} title="Delete shipment" aria-label="Delete shipment"><Trash2 size={16} /></button></div></td></tr>; }) : <tr><td colSpan={7}>No shipments found.</td></tr>}</tbody></table></div>{newShipmentOpen && <NewShipmentModal profiles={profiles} onClose={() => setNewShipmentOpen(false)} onCreated={shipment => { onShipmentCreated(shipment); setNewShipmentOpen(false); }} />}</section>;
   const descriptions: Record<string, string> = { "Manage Users": "Manage customer accounts, roles, and access.", Shipments: "Monitor and update every shipment in the network.", Invoices: "Review uploaded invoices and verification status.", Payments: "Reconcile payment activity and outstanding balances.", Reports: "Build operational and financial reports.", Services: "Configure freight and delivery services.", Settings: "Configure portal defaults and administrator preferences.", "System Logs": "Review security and operational events." };
   return active === "Settings" ? <AdminSettings userId={userId} /> : <section className="portal-card"><div className="card-title"><div><h2>{active}</h2><p className="muted">{descriptions[active]}</p></div></div><div className="empty-state"><h3>No records available</h3><p className="muted">This workspace is connected to live Supabase data and will display records when they are created.</p></div></section>;
