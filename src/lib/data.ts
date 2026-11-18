@@ -1,9 +1,10 @@
 import { supabase } from "./supabase";
 
-export type Profile = { id: string; full_name: string | null; phone: string | null; email?: string | null; role: "customer" | "support" | "driver" | "admin"; identifier_code?: string | null; delivery_preference?: "pickup" | "delivery"; shipment_status_emails?: boolean; delivery_reminders?: boolean; us_address_line1?: string; us_address_city?: string; us_address_state?: string; us_address_zip?: string };
-export type Shipment = { id: string; tracking_number: string; status: string; origin: string; destination: string; estimated_delivery: string | null; created_at: string; invoice_uploaded: boolean };
+export type Profile = { id: string; full_name: string | null; first_name?: string | null; last_name?: string | null; phone: string | null; email?: string | null; role: "customer" | "support" | "driver" | "admin"; identifier_code?: string | null; referral_code?: string | null; referral_discount_eligible?: boolean; address_line1?: string | null; address_line2?: string | null; city_town?: string | null; parish?: string | null; delivery_preference?: "pickup" | "delivery"; shipment_status_emails?: boolean; delivery_reminders?: boolean; us_address_line1?: string; us_address_city?: string; us_address_state?: string; us_address_zip?: string };
+export type Shipment = { id: string; tracking_number: string; status: string; origin: string; destination: string; estimated_delivery: string | null; created_at: string; invoice_uploaded: boolean; weight_lb?: number | null; freight_type?: "air" | "sea"; collection_amount_jmd?: number | null; pricing_breakdown?: PackagePricingBreakdown | null };
 export type TrackingEvent = { id: string; package_id: string; status: string; description: string | null; location: string | null; created_at: string };
 export type SupportTicket = { id: string; subject: string; category: string; priority: string; message: string; status: string; created_at: string };
+export type PackagePricingBreakdown = { chargeable_weight_lb: number; recorded_weight_lb: number; freight_type: "air" | "sea"; normal_shipping_charge_jmd: number; referral_discount_eligible: boolean; referral_code: string | null; referral_discount_jmd: number; free_delivery_eligible: boolean; local_delivery_free: boolean; final_amount_jmd: number; calculated_at: string };
 export type AdminNotification = { id: string; type: string; title: string; body: string; read_at: string | null; created_at: string };
 export type Invoice = { id: string; invoice_number: string; amount: number; currency: string; status: string; due_date: string | null; created_at: string };
 export type AuthorizedPickupPerson = { id: string; user_id: string; full_name: string; phone: string; relationship: string | null; id_type: "national_id" | "drivers_license" | "passport" | "other"; id_document_path: string; created_at: string };
@@ -12,17 +13,25 @@ export type Announcement = { id: string; title: string; body: string; category: 
 function requireClient() { if (!supabase) throw new Error("Supabase is not configured."); return supabase; }
 export async function getSession() { return requireClient().auth.getSession(); }
 export async function signIn(email: string, password: string) { return requireClient().auth.signInWithPassword({ email, password }); }
-export async function signUp(email: string, password: string, fullName: string, whatsappNumber?: string) { return requireClient().auth.signUp({ email, password, options: { data: { full_name: fullName, phone: whatsappNumber || null } } }); }
+export async function signUp(email: string, password: string, registration: { first_name: string; last_name: string; phone: string; address_line1: string; address_line2: string | null; city_town: string; parish: string; trn: string; referral_code: string | null }) {
+  return requireClient().auth.signUp({ email, password, options: { data: { ...registration, full_name: `${registration.first_name} ${registration.last_name}`.trim() } } });
+}
 export async function signOut() { return requireClient().auth.signOut(); }
 export async function getProfile(userId: string) { return requireClient().from("profiles").select("*").eq("id", userId).single<Profile>(); }
 export async function listProfiles() { return requireClient().from("profiles").select("id,full_name,phone,email,role,identifier_code,delivery_preference,pickup_location,us_address_line1,us_address_city,us_address_state,us_address_zip,created_at").order("created_at", { ascending: false }); }
 export async function updateUserRole(userId: string, role: "customer" | "support" | "admin") { return requireClient().from("profiles").update({ role }).eq("id", userId).select().single<Profile>(); }
-export async function updateProfile(userId: string, values: { full_name: string; phone: string | null; shipment_status_emails: boolean; delivery_reminders: boolean }) { return requireClient().from("profiles").update(values).eq("id", userId).select().single<Profile>(); }
+export async function updateProfile(userId: string, values: { full_name: string; first_name: string; last_name: string; phone: string | null; address_line1: string; address_line2: string | null; city_town: string; parish: string; shipment_status_emails: boolean; delivery_reminders: boolean }) { return requireClient().from("profiles").update(values).eq("id", userId).select().single<Profile>(); }
 export async function updateDeliveryPreference(userId: string, deliveryPreference: "pickup" | "delivery") { return requireClient().from("profiles").update({ delivery_preference: deliveryPreference }).eq("id", userId).select().single(); }
 export async function updateEmail(email: string) { return requireClient().auth.updateUser({ email }); }
 export async function updatePassword(password: string) { return requireClient().auth.updateUser({ password }); }
-export async function listShipments(userId: string) { return requireClient().from("packages").select("id,tracking_number,status,origin,destination,estimated_delivery,created_at,invoice_uploaded").eq("customer_id", userId).order("created_at", { ascending: false }).returns<Shipment[]>(); }
-export async function listAllShipments() { return requireClient().from("packages").select("id,customer_id,tracking_number,status,origin,destination,estimated_delivery,created_at,invoice_uploaded,customer_name,customer_email,customer_phone,collection_amount_jmd,weight_lb,freight_type,profiles:customer_id(full_name,phone)").order("created_at", { ascending: false }).returns<Shipment[]>(); }
+export async function hasCustomerTrn(userId: string) {
+  return requireClient().from("customer_sensitive_data").select("user_id").eq("user_id", userId).maybeSingle();
+}
+export async function updateCustomerTrn(userId: string, trn: string) {
+  return requireClient().from("customer_sensitive_data").upsert({ user_id: userId, trn }, { onConflict: "user_id" }).select("user_id").single();
+}
+export async function listShipments(userId: string) { return requireClient().from("packages").select("id,tracking_number,status,origin,destination,estimated_delivery,created_at,invoice_uploaded,collection_amount_jmd,weight_lb,freight_type,pricing_breakdown").eq("customer_id", userId).order("created_at", { ascending: false }).returns<Shipment[]>(); }
+export async function listAllShipments() { return requireClient().from("packages").select("id,customer_id,tracking_number,status,origin,destination,estimated_delivery,created_at,invoice_uploaded,customer_name,customer_email,customer_phone,collection_amount_jmd,weight_lb,freight_type,pricing_breakdown,profiles:customer_id(full_name,phone)").order("created_at", { ascending: false }).returns<Shipment[]>(); }
 export async function createPackage(packageData: { customer_id: string; tracking_number: string; origin: string; destination: string; status: string; service_level: string; weight_kg: number | null; estimated_delivery: string | null; customer_name?: string | null; customer_email?: string | null; customer_phone?: string | null }) {
   return requireClient().from("packages").insert(packageData).select("id,customer_id,tracking_number,status,origin,destination,estimated_delivery,created_at,invoice_uploaded,customer_name,customer_email,customer_phone,collection_amount_jmd,weight_lb,freight_type").single();
 }
@@ -60,22 +69,27 @@ export async function sendWarehousePackageEmail(packageId: string) {
   const response = await fetch(`${apiUrl}/package-notifications/${packageId}/warehouse-email`, { method: "POST", headers: { Authorization: `Bearer ${token}` } });
   if (!response.ok) throw new Error((await response.json() as { error?: string }).error || "Unable to send warehouse email.");
 }
-export function calculateCollectionAmount(weightLb: number, freightType: "air" | "sea") {
-  const pounds = Math.ceil(weightLb);
-  const air = pounds === 1 ? 750 : pounds === 2 ? 1155 : Math.round(1754 + (pounds - 3) * 520.2);
-  return freightType === "sea" ? Math.round(air * (560 / 750)) : air;
-}
-export async function updatePackageWeight(packageId: string, weightLb: number, freightType: "air" | "sea") {
-  const collectionAmount = calculateCollectionAmount(weightLb, freightType);
-  return requireClient().from("packages").update({ weight_lb: weightLb, freight_type: freightType, collection_amount_jmd: collectionAmount }).eq("id", packageId).select("id,weight_lb,freight_type,collection_amount_jmd").single();
+export async function updatePackageProcessing(packageId: string, status: string, weightLb: number | null, freightType: "air" | "sea") {
+  const client = requireClient();
+  const { data: session } = await client.auth.getSession();
+  const token = session.session?.access_token;
+  const apiUrl = import.meta.env.VITE_API_URL?.replace(/\/$/, "");
+  if (!token || !apiUrl) throw new Error("Package processing is not configured or your staff session has expired.");
+  const response = await fetch(`${apiUrl}/packages/${packageId}`, {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ status, weight_lb: weightLb, freight_type: freightType }),
+  });
+  const payload = await response.json() as {
+    data?: { id: string; status: string; weight_lb: number | null; freight_type: "air" | "sea"; collection_amount_jmd: number | null; pricing_breakdown: PackagePricingBreakdown | null };
+    email?: { sent: boolean; error?: string };
+    warnings?: string[];
+    error?: string;
+  };
+  if (!response.ok || !payload.data) throw new Error(payload.error || "Unable to update package pricing.");
+  return { ...payload.data, email: payload.email, warnings: payload.warnings };
 }
 export async function listTrackingEvents(packageId: string) { return requireClient().from("tracking_events").select("id,package_id,status,description,location,created_at").eq("package_id", packageId).order("created_at", { ascending: true }).returns<TrackingEvent[]>(); }
-export async function updateShipmentMilestone(packageId: string, status: string, description: string, location: string) {
-  const client = requireClient();
-  const updated = await client.from("packages").update({ status }).eq("id", packageId);
-  if (updated.error) return updated;
-  return client.from("tracking_events").insert({ package_id: packageId, status, description, location }).select().single<TrackingEvent>();
-}
 export async function updatePackageInvoice(packageId: string, userId: string, filePath: string) {
   const client = requireClient();
   const { error: packageError } = await client.from("packages").update({ invoice_uploaded: true }).eq("id", packageId).eq("customer_id", userId);
@@ -93,7 +107,7 @@ export async function listAllSupportTickets() { return requireClient().from("sup
 export async function updateSupportTicketStatus(ticketId: string, status: SupportTicket["status"]) {
   return requireClient().from("support_tickets").update({ status }).eq("id", ticketId).select("id,status").single();
 }
-export async function listAllInvoices() { return requireClient().from("invoices").select("id,invoice_number,status,amount,currency,file_path,created_at").order("created_at", { ascending: false }); }
+export async function listAllInvoices() { return requireClient().from("invoices").select("id,invoice_number,status,amount,currency,file_path,created_at,package_id,invoice_kind,pricing_breakdown,shipping_for_package_id,packages:package_id(tracking_number)").order("created_at", { ascending: false }); }
 export async function getInvoiceDownloadUrl(filePath: string) { return requireClient().storage.from("invoices").createSignedUrl(filePath, 300); }
 export async function listAuthorizedPickupPersons(userId: string) {
   return requireClient().from("authorized_pickup_persons").select("id,user_id,full_name,phone,relationship,id_type,id_document_path,created_at").eq("user_id", userId).order("created_at", { ascending: false }).returns<AuthorizedPickupPerson[]>();

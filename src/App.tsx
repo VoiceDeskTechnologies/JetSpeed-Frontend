@@ -1,21 +1,30 @@
 import { FormEvent, ReactNode, useEffect, useRef, useState } from "react";
 import {
-  ArrowRight, BarChart3, Bell, CheckCircle2, ChevronRight, Clock3, FileText,
-  Globe2, HelpCircle, LayoutDashboard, LogOut, Menu, Package, Plane, Search,
+  ArrowRight, BarChart3, Bell, CheckCircle2, ChevronRight, Clock3, Copy, FileText,
+  Gift, Globe2, HelpCircle, LayoutDashboard, LogOut, Menu, Package, Plane, Search,
   Settings, ShieldCheck, Ship, Sun, Moon, Truck, Trash2, Upload, Users, WalletCards, X, MessageSquare, MessageCircle, Mail, Info,
 } from "lucide-react";
 import { trackPackage } from "./lib/api";
 import { Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { supabase, supabaseConfigured } from "./lib/supabase";
-import { Announcement, AuthorizedPickupPerson, calculateCollectionAmount, createAnnouncement, createAuthorizedPickupPerson, createPackage, createShippingService, createSupportTicket, deleteAnnouncement, deleteAuthorizedPickupPerson, deleteInvoice, deletePackage, deletePayment, getAuthorizedPickupIdUrl, getInvoiceDownloadUrl, getProfile, getSession, listAllInvoices, listAllPayments, listAllShipments, listAllSupportTickets, listAnnouncements, listAuthorizedPickupPersons, listInvoices, listNotifications, listProfiles, listPublicAnnouncements, listShipments, listShippingServices, listSiteSettings, listSupportTickets, listTrackingEvents, markNotificationRead, recordPayment, saveSiteSetting, sendPaymentReceipt, sendWarehousePackageEmail, signIn, signUp, signOut, syncFreightForwarderAccount, updateAnnouncement, updateDeliveryPreference, updateEmail, updatePackageInvoice, updatePackageWeight, updatePassword, updateProfile, updateShipmentMilestone, updateShippingService, updateSupportTicketStatus, updateUserRole, uploadInvoiceFile } from "./lib/data";
+import { Announcement, AuthorizedPickupPerson, createAnnouncement, createAuthorizedPickupPerson, createPackage, createShippingService, createSupportTicket, deleteAnnouncement, deleteAuthorizedPickupPerson, deleteInvoice, deletePackage, deletePayment, getAuthorizedPickupIdUrl, getInvoiceDownloadUrl, getProfile, getSession, hasCustomerTrn, listAllInvoices, listAllPayments, listAllShipments, listAllSupportTickets, listAnnouncements, listAuthorizedPickupPersons, listInvoices, listNotifications, listProfiles, listPublicAnnouncements, listShipments, listShippingServices, listSiteSettings, listSupportTickets, listTrackingEvents, markNotificationRead, recordPayment, saveSiteSetting, sendPaymentReceipt, sendWarehousePackageEmail, signIn, signUp, signOut, syncFreightForwarderAccount, updateAnnouncement, updateCustomerTrn, updateDeliveryPreference, updateEmail, updatePackageInvoice, updatePackageProcessing, updatePassword, updateProfile, updateShippingService, updateSupportTicketStatus, updateUserRole, uploadInvoiceFile } from "./lib/data";
+import { addReferralDeliveryArea, getReferralManagement, getReferralSummary, ReferralManagement as ReferralManagementData, ReferralSummary, removeReferralDeliveryArea, updateReferralCustomerEligibility, updateReferralSettings, validateReferralCode } from "./lib/referrals";
 
 type View = "home" | "services" | "rates" | "track" | "about" | "contact" | "help" | "terms" | "privacy" |
   "customer" | "admin";
 type Modal = "login" | "signup" | null;
 type ContactSettings = { support_phone: string; support_email: string; whatsapp_phone: string };
 type RateSettings = { air_first_pound: number; air_second_pound: number; air_third_pound: number; air_additional_pound: number; sea_first_pound: number; sea_second_pound: number; sea_third_pound: number; sea_additional_pound: number };
-const defaultRates: RateSettings = { air_first_pound: 750, air_second_pound: 1155, air_third_pound: 1754, air_additional_pound: 520.2, sea_first_pound: 560, sea_second_pound: 862, sea_third_pound: 1309, sea_additional_pound: 386.8 };
+const jamaicanParishes = ["Clarendon", "Hanover", "Kingston", "Manchester", "Portland", "St. Andrew", "St. Ann", "St. Catherine", "St. Elizabeth", "St. James", "St. Mary", "St. Thomas", "Trelawny", "Westmoreland"];
 function rateForPounds(pounds: number, freight: "air" | "sea", rates: RateSettings) { const billable = Math.ceil(pounds); const prefix = freight === "air" ? "air" : "sea"; const first = rates[`${prefix}_first_pound` as keyof RateSettings] as number; const second = rates[`${prefix}_second_pound` as keyof RateSettings] as number; const third = rates[`${prefix}_third_pound` as keyof RateSettings] as number; const additional = rates[`${prefix}_additional_pound` as keyof RateSettings] as number; return billable === 1 ? first : billable === 2 ? second : Math.round(third + (billable - 3) * additional); }
+async function loadRateSettings(): Promise<RateSettings | null> {
+  const { data, error } = await listSiteSettings();
+  if (error) throw error;
+  const values = Object.fromEntries((data ?? []).map((item: any) => [item.key, Number(item.value?.value ?? item.value)]));
+  const keys = ["air_first_pound", "air_second_pound", "air_third_pound", "air_additional_pound", "sea_first_pound", "sea_second_pound", "sea_third_pound", "sea_additional_pound"] as const;
+  if (!keys.every(key => Number.isFinite(values[key]) && values[key] >= 0)) return null;
+  return Object.fromEntries(keys.map(key => [key, values[key]])) as RateSettings;
+}
 const photos = {
   hero: "/images/hero-delivery.jpg",
   handoff: "https://images.pexels.com/photos/6612689/pexels-photo-6612689.jpeg?auto=compress&cs=tinysrgb&w=900",
@@ -126,7 +135,16 @@ function PublicPage({ view, go, contact }: { view: View; go: (v: View) => void; 
 }
 function TrackPage() { const [value, setValue] = useState(""); const [result, setResult] = useState(""); const [status, setStatus] = useState(""); const submit = async (e: FormEvent) => { e.preventDefault(); try { const r = await trackPackage(value); setStatus(r.status); setResult(`${r.status} — destination: ${r.destination}`); } catch (e) { setResult(e instanceof Error ? e.message : "Tracking unavailable"); } }; const milestones = ["label_created", "received_at_miami", "in_transit", "ready_for_pickup"]; const labels: Record<string, string> = { label_created: "Label created", received_at_miami: "Received at Miami hub", in_transit: "In transit", ready_for_pickup: "Ready for pickup/Delivery" }; const current = milestones.indexOf(status); return <section className="content-card"><h2>Shipment lookup</h2><form className="inline-form" onSubmit={submit}><input required value={value} onChange={e => setValue(e.target.value)} placeholder="e.g. JS250001" /><button className="button">Search shipment <Search size={16} /></button></form>{result && <div className="notice"><CheckCircle2 size={18} /> {result}</div>}<div className="timeline"><b>Shipment milestones</b><div className="milestone-list">{milestones.map((milestone, index) => <span className={index <= current ? "milestone complete" : "milestone"} key={milestone}>{index <= current ? "✓" : "○"} {labels[milestone]}{index < milestones.length - 1 && <i>→</i>}</span>)}</div></div></section>; }
 function ServicesPage({ go }: { go: (v: View) => void }) { const items = [["Air freight","Fast, priority transport for time-sensitive packages.",Plane],["Sea freight","Economical consolidation for larger shipments.",Ship],["Package forwarding","A personal US address for safe online shopping.",Package],["Local delivery","Reliable last-mile delivery across Jamaica.",Truck]] as const; return <section className="service-detail-grid">{items.map(([name, text, Icon]) => <article className="detail-card" key={name}><div className="detail-icon"><Icon /></div><h2>{name}</h2><p>{text}</p><button className="text-button" onClick={() => go("contact")}>Talk to a specialist <ArrowRight size={15} /></button></article>)}</section>; }
-function RatesPage() { const [rates, setRates] = useState(defaultRates); useEffect(() => { listSiteSettings().then(({ data }) => { const values = Object.fromEntries((data ?? []).map((item: any) => [item.key, Number(item.value)])); setRates(current => ({ ...current, ...Object.fromEntries(Object.keys(current).map(key => [key, Number.isFinite(values[key]) ? values[key] : current[key as keyof RateSettings]])) } as RateSettings)); }).catch(() => undefined); }, []); const rows = Array.from({ length: 10 }, (_, index) => { const pounds = index + 1; return { pounds, air: rateForPounds(pounds, "air", rates), sea: rateForPounds(pounds, "sea", rates) }; }); return <section className="content-card rates-card"><div className="rates-intro"><p className="eyebrow orange">ESTIMATED COLLECTION RATES</p><h2>Air and sea freight rates</h2><p>Use these live estimates to plan your collection cost in Jamaican dollars.</p></div><div className="table-wrap"><table><thead><tr><th>Billable weight</th><th>Air freight</th><th>Sea freight</th></tr></thead><tbody>{rows.map(rate => <tr key={rate.pounds}><td>{rate.pounds} lb</td><td><b>JMD ${rate.air.toLocaleString("en-JM")}</b></td><td><b>JMD ${rate.sea.toLocaleString("en-JM")}</b></td></tr>)}</tbody></table></div><p className="rates-note">Rates are estimates for collection charges. Fractional weights round up to the next whole pound. Customs duties, taxes, insurance, and optional local delivery fees are not included.</p></section>; }
+function RatesPage() {
+  const [rates, setRates] = useState<RateSettings | null>(null);
+  useEffect(() => { loadRateSettings().then(setRates).catch(() => setRates(null)); }, []);
+  if (!rates) return <section className="content-card rates-card"><h2>Air and sea freight rates</h2><p className="muted">Live rates are not available right now. Please try again later.</p></section>;
+  const rows = Array.from({ length: 10 }, (_, index) => {
+    const pounds = index + 1;
+    return { pounds, air: rateForPounds(pounds, "air", rates), sea: rateForPounds(pounds, "sea", rates) };
+  });
+  return <section className="content-card rates-card"><div className="rates-intro"><p className="eyebrow orange">ESTIMATED COLLECTION RATES</p><h2>Air and sea freight rates</h2><p>Use these live estimates to plan your collection cost in Jamaican dollars.</p></div><div className="table-wrap"><table><thead><tr><th>Billable weight</th><th>Air freight</th><th>Sea freight</th></tr></thead><tbody>{rows.map(rate => <tr key={rate.pounds}><td>{rate.pounds} lb</td><td><b>JMD ${rate.air.toLocaleString("en-JM")}</b></td><td><b>JMD ${rate.sea.toLocaleString("en-JM")}</b></td></tr>)}</tbody></table></div><p className="rates-note">Rates are estimates for collection charges. Fractional weights round up to the next whole pound. Customs duties, taxes, insurance, and optional local delivery fees are not included.</p></section>;
+}
 function AboutPage() { return <><section className="content-card two-col"><div><p className="eyebrow orange">ABOUT JETSPEED COURIERS</p><h2>Connecting Jamaica to the world.</h2><p>JetSpeed Couriers is a Jamaica-based package forwarding and freight service helping families, online shoppers, entrepreneurs, and businesses receive goods from the United States safely and reliably.</p><p>Our local team is based in <b>Saint Elizabeth, Jamaica</b>, where we coordinate customer support and last-mile delivery while working with our USA warehouse network to keep every shipment moving.</p><p>From the moment you receive your personal US address to the moment your package is ready for pickup or delivery, we make the process clear, trackable, and convenient.</p><ul className="check-list"><li><CheckCircle2 /> Transparent, weight-based collection estimates</li><li><CheckCircle2 /> Dedicated support for every shipment</li><li><CheckCircle2 /> Secure handling from warehouse to Jamaica</li><li><CheckCircle2 /> Air, sea, forwarding, and local delivery options</li></ul></div><img src={photos.handoff} alt="Courier service helping a customer with a package" /></section><section className="content-card about-details"><div><h2>Our mission</h2><p>To make international shopping and shipping feel local, dependable, and accessible for customers across Jamaica.</p></div><div><h2>Our commitment</h2><p>We communicate clearly, protect customer information, handle packages responsibly, and provide practical updates at every important milestone.</p></div><div><h2>Where we serve</h2><p>Based in Saint Elizabeth and serving customers across Jamaica through our warehouse, freight, and local delivery network.</p></div></section></>; }
 function ContactPage({ contact }: { contact: ContactSettings }) { const whatsappMessage = "Hi JetSpeed Couriers, I would like help with a shipment or shipping enquiry."; const whatsapp = contact.whatsapp_phone.replace(/\D/g, ""); return <section className="content-card two-col"><div><h2>Send us a message</h2><label>Name<input placeholder="Your name" /></label><label>Email<input type="email" placeholder="you@example.com" /></label><label>How can we help?<textarea rows={4} placeholder="Tell us about your shipment" /></label><button className="button">Submit request <ArrowRight size={16} /></button></div><div className="contact-info"><h3>Contact details</h3><p><a href={`tel:${contact.support_phone.replace(/\D/g, "")}`}>{contact.support_phone}</a><br /><a href={`mailto:${contact.support_email}`}>{contact.support_email}</a></p><p><b>Hours</b><br />Mon-Fri, 8:30 AM - 4:30 PM<br />Sat, 10:00 AM - 4:00 PM</p><a className="button whatsapp-contact" href={`https://wa.me/${whatsapp}?text=${encodeURIComponent(whatsappMessage)}`} target="_blank" rel="noreferrer"><MessageCircle size={17} /> Message us on WhatsApp</a></div></section>; }
 function HelpPage() {
@@ -143,8 +161,8 @@ function HelpPage() {
 }
 function LegalPage({ type }: { type: View }) { return <section className="content-card legal"><h2>{type === "terms" ? "Using our services" : "Your information matters"}</h2>{Array.from({ length: 5 }, (_, i) => <div key={i}><h3>{i + 1}. {type === "terms" ? ["Service terms","Prohibited items","Payment and claims","Delivery","Changes"][i] : ["Information we collect","How we use information","Sharing","Security","Your choices"][i]}</h3><p>JetSpeed Couriers provides clear, responsible shipping services. This section explains our practices, responsibilities, and the choices available to customers. Please contact support if you need clarification.</p></div>)}</section>; }
 
-const customerMenus = [["Dashboard", LayoutDashboard], ["Track Package", Search], ["Upload Invoice", Upload], ["My Shipments", Package], ["Authorized Pickup", Users], ["Account Settings", Settings], ["Support", HelpCircle]] as const;
-const adminMenus = [["Dashboard", LayoutDashboard], ["Manage Users", Users], ["Shipments", Package], ["Invoices", FileText], ["Payments", WalletCards], ["Reports", BarChart3], ["Services", Truck], ["Announcements & Updates", Bell], ["Settings", Settings], ["System Logs", Clock3], ["Support Tickets", MessageSquare]] as const;
+const customerMenus = [["Dashboard", LayoutDashboard], ["Track Package", Search], ["Upload Invoice", Upload], ["My Shipments", Package], ["Authorized Pickup", Users], ["Referral & Rewards", Gift], ["Account Settings", Settings], ["Support", HelpCircle]] as const;
+const adminMenus = [["Dashboard", LayoutDashboard], ["Manage Users", Users], ["Shipments", Package], ["Invoices", FileText], ["Payments", WalletCards], ["Reports", BarChart3], ["Services", Truck], ["Announcements & Updates", Bell], ["Referral Management", Gift], ["Settings", Settings], ["System Logs", Clock3], ["Support Tickets", MessageSquare]] as const;
 function Portal({ admin, userId, email, role, contact, initialPage, onInitialPageApplied, onBack, onLogout }: { admin: boolean; userId: string | null; email: string; role: "customer" | "support" | "admin"; contact: ContactSettings; initialPage?: string; onInitialPageApplied?: () => void; onBack: () => void; onLogout: () => Promise<void> }) {
   const [active, setActive] = useState(initialPage || "Dashboard"); const [profile, setProfile] = useState<any>(null); const [warehouse, setWarehouse] = useState<any>({ line1: "2033 W McNab Rd, Suite S", city: "Pompano Beach", state: "Florida", zip: "33069" }); const [profileName, setProfileName] = useState(""); const [mobileMenuOpen, setMobileMenuOpen] = useState(false); const [notifications, setNotifications] = useState<any[]>([]); const [notificationsOpen, setNotificationsOpen] = useState(false); const [menuCounts, setMenuCounts] = useState<Record<string, number>>({}); const [menuTotals, setMenuTotals] = useState<Record<string, number>>({}); const menus = admin ? (role === "support" ? adminMenus.filter(([name]) => ["Dashboard", "Manage Users", "Shipments", "Invoices", "Payments", "Support Tickets"].includes(name)) : adminMenus) : customerMenus;
   const notificationWrapRef = useRef<HTMLDivElement>(null);
@@ -218,7 +236,7 @@ function PortalContent({ active, admin, canChangeRoles, userId, profile, warehou
   if (!userId) return <section className="portal-card"><h2>Sign in required</h2><p className="muted">Your account session is not available.</p></section>;
   if (loading) return <section className="portal-card"><h2>Loading your account…</h2></section>;
   if (error) return <section className="portal-card"><h2>Unable to load your account</h2><p className="form-error">{error}</p></section>;
-  if (admin) return <><AdminWorkspace active={active} tickets={tickets} shipments={shipments} profiles={profiles} payments={payments} invoices={invoices} userId={userId} canChangeRoles={canChangeRoles} onViewCustomer={setSelectedCustomer} onTicketStatusChange={async (ticketId, status) => { const result = await updateSupportTicketStatus(ticketId, status); if (result.error) throw result.error; setTickets(current => current.map(ticket => ticket.id === ticketId ? { ...ticket, status: result.data.status } : ticket)); }} onShipmentCreated={shipment => setShipments(current => [shipment, ...current])} onShipmentDeleted={packageId => setShipments(current => current.filter(shipment => shipment.id !== packageId))} />{selectedCustomer && <CustomerDetailsModal profile={selectedCustomer} shipments={shipments.filter(shipment => shipment.customer_id === selectedCustomer.id)} onClose={() => setSelectedCustomer(null)} />}</>;
+  if (admin) return <><AdminWorkspace active={active} tickets={tickets} shipments={shipments} profiles={profiles} payments={payments} invoices={invoices} userId={userId} canChangeRoles={canChangeRoles} onViewCustomer={setSelectedCustomer} onTicketStatusChange={async (ticketId, status) => { const result = await updateSupportTicketStatus(ticketId, status); if (result.error) throw result.error; setTickets(current => current.map(ticket => ticket.id === ticketId ? { ...ticket, status: result.data.status } : ticket)); }} onShipmentCreated={shipment => setShipments(current => [shipment, ...current])} onShipmentUpdated={shipment => setShipments(current => current.map(item => item.id === shipment.id ? { ...item, ...shipment } : item))} onInvoicesUpdated={setInvoices} onShipmentDeleted={packageId => setShipments(current => current.filter(shipment => shipment.id !== packageId))} />{selectedCustomer && <CustomerDetailsModal profile={selectedCustomer} shipments={shipments.filter(shipment => shipment.customer_id === selectedCustomer.id)} onClose={() => setSelectedCustomer(null)} />}</>;
   return <CustomerWorkspace active={active} shipments={shipments} profile={profile} warehouse={warehouse} contact={contact} userId={userId} onNavigate={onNavigate} onTicket={async (ticket) => { const result = await createSupportTicket(userId, ticket); if (result.error) throw result.error; setTickets(current => [result.data!, ...current]); }} />;
 }
 
@@ -234,7 +252,8 @@ function CustomerWorkspace({ active, shipments, profile, warehouse, contact, use
   if (active === "Track Package") { const milestones = ["label_created", "received_at_miami", "in_transit", "ready_for_pickup"]; const labels: Record<string, string> = { label_created: "Label created", received_at_miami: "Received at Miami hub", in_transit: "In transit", ready_for_pickup: "Ready for pickup/Delivery" }; const current = trackingEvents.length ? milestones.indexOf(trackingEvents[trackingEvents.length - 1].status) : -1; return <section className="portal-card" id="portal-track"><h2>Track Package</h2><p className="muted">Enter a tracking number to see its latest scan and delivery timeline.</p><form className="inline-form" onSubmit={submitTracking}><input aria-label="Tracking number" value={tracking} onChange={e => setTracking(e.target.value)} placeholder="e.g. JS250001" /><button className="button">Track package</button></form>{trackingResult && <div className="notice"><CheckCircle2 size={17} />{trackingResult}</div>}<div className="timeline"><h3>Shipment milestones</h3><div className="milestone-list">{milestones.map((milestone, index) => <span className={index <= current ? "milestone complete" : "milestone"} key={milestone}>{index <= current ? "✓" : "○"} {labels[milestone]}{index < milestones.length - 1 && <i>→</i>}</span>)}</div>{trackingEvents.map(event => <p key={event.id}><b>{event.description || labels[event.status] || event.status}</b><br /><span className="muted">{event.location || "JetSpeed network"} · {new Date(event.created_at).toLocaleString()}</span></p>)}</div></section>; }
   if (active === "Upload Invoice") return <InvoiceUpload shipments={shipments} userId={userId} />;
   if (active === "Authorized Pickup") return <AuthorizedPickupWorkspace userId={userId} />;
-  if (active === "My Shipments") return <section className="portal-card"><div className="card-title"><div><h2>My Shipments</h2><p className="muted">Search your shipment history and open a shipment detail.</p></div></div><div className="toolbar"><input aria-label="Search shipments" value={query} onChange={e => setQuery(e.target.value)} placeholder="Search tracking number or route" /><select aria-label="Filter shipments"><option>All statuses</option><option>In transit</option><option>Delivered</option></select></div><div className="table-wrap"><table><thead><tr><th>Tracking number</th><th>Status</th><th>Route</th><th>Date</th><th>Action</th></tr></thead><tbody>{visibleShipments.length ? visibleShipments.map(s => <tr key={s.id}><td><b>{s.tracking_number}</b></td><td><span className={"status " + (s.status === "in_transit" ? "in-transit" : "")}>{s.status}</span></td><td>{s.origin} → {s.destination}</td><td>{new Date(s.created_at).toLocaleDateString()}</td><td><button className="text-button" onClick={() => setTracking(s.tracking_number)}>View details <ChevronRight size={14} /></button><button className="text-button" onClick={() => onNavigate("Upload Invoice")}>Upload invoice</button></td></tr>) : <tr><td colSpan={5}>No shipments found.</td></tr>}</tbody></table></div></section>;
+  if (active === "Referral & Rewards") return <ReferralWorkspace />;
+  if (active === "My Shipments") return <section className="portal-card"><div className="card-title"><div><h2>My Shipments</h2><p className="muted">Search your shipment history and open a shipment detail.</p></div></div><div className="toolbar"><input aria-label="Search shipments" value={query} onChange={e => setQuery(e.target.value)} placeholder="Search tracking number or route" /><select aria-label="Filter shipments"><option>All statuses</option><option>In transit</option><option>Delivered</option></select></div><div className="table-wrap"><table><thead><tr><th>Tracking number</th><th>Status</th><th>Collection amount</th><th>Route</th><th>Date</th><th>Action</th></tr></thead><tbody>{visibleShipments.length ? visibleShipments.map(s => <tr key={s.id}><td><b>{s.tracking_number}</b></td><td><span className={"status " + (s.status === "in_transit" ? "in-transit" : "")}>{s.status.replace(/_/g, " ")}</span></td><td>{s.pricing_breakdown ? <div className="package-price-breakdown"><small>Shipping: JMD ${Number(s.pricing_breakdown.normal_shipping_charge_jmd).toLocaleString("en-JM")}</small>{Number(s.pricing_breakdown.referral_discount_jmd) > 0 && <small>Referral discount: -JMD ${Number(s.pricing_breakdown.referral_discount_jmd).toLocaleString("en-JM")}</small>}<strong>Due: JMD ${Number(s.collection_amount_jmd || 0).toLocaleString("en-JM")}</strong>{s.pricing_breakdown.local_delivery_free && <small>Local delivery: FREE</small>}</div> : "—"}</td><td>{s.origin} → {s.destination}</td><td>{new Date(s.created_at).toLocaleDateString()}</td><td><button className="text-button" onClick={() => setTracking(s.tracking_number)}>View details <ChevronRight size={14} /></button><button className="text-button" onClick={() => onNavigate("Upload Invoice")}>Upload invoice</button></td></tr>) : <tr><td colSpan={6}>No shipments found.</td></tr>}</tbody></table></div></section>;
   if (active === "Account Settings") return <AccountSettings userId={userId} />;
   return <section className="portal-card"><div className="card-title"><div><h2>Support</h2><p className="muted">Get help from our shipping team.</p></div><a className="button button-small" href={`https://wa.me/${contact.whatsapp_phone.replace(/\D/g, "")}`} target="_blank" rel="noreferrer">WhatsApp us</a></div><p><a href={`mailto:${contact.support_email}`}>Email {contact.support_email}</a></p><form onSubmit={submitTicket}><div className="form-grid">{field("Subject", ticket.subject, v => setTicket({ ...ticket, subject: v }))}<label>Category<select value={ticket.category} onChange={e => setTicket({ ...ticket, category: e.target.value })}><option>Shipment</option><option>Billing</option><option>Account</option><option>Other</option></select></label><label>Priority<select value={ticket.priority} onChange={e => setTicket({ ...ticket, priority: e.target.value })}><option>Low</option><option>Normal</option><option>High</option></select></label></div><label>Message<textarea rows={5} value={ticket.message} onChange={e => setTicket({ ...ticket, message: e.target.value })} required /></label><button className="button" type="submit">Send ticket</button>{ticketError && <p className="form-error">{ticketError}</p>}{sent && <div className="notice"><CheckCircle2 size={17} />Ticket submitted successfully. Our team will respond soon.</div>}</form></section>;
 }
@@ -414,17 +433,302 @@ function InvoiceUpload({ shipments, userId }: { shipments: any[]; userId: string
 }
 
 function AccountSettings({ userId }: { userId: string }) {
-  const [name, setName] = useState("");
-  const [whatsapp, setWhatsapp] = useState("");
+  const [profile, setProfile] = useState<any>(null);
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [addressLine1, setAddressLine1] = useState("");
+  const [addressLine2, setAddressLine2] = useState("");
+  const [cityTown, setCityTown] = useState("");
+  const [parish, setParish] = useState("");
+  const [mobile, setMobile] = useState("");
   const [email, setEmail] = useState("");
+  const [trn, setTrn] = useState("");
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [hasTrn, setHasTrn] = useState(false);
   const [newPassword, setNewPassword] = useState("");
   const [preference, setPreference] = useState<"pickup" | "delivery">("pickup");
   const [shipmentEmails, setShipmentEmails] = useState(true);
   const [deliveryReminders, setDeliveryReminders] = useState(true);
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
   const [message, setMessage] = useState("");
-  useEffect(() => { getProfile(userId).then(({ data }) => { setName(data?.full_name ?? ""); setWhatsapp(data?.phone ?? ""); setEmail(data?.email ?? ""); setPreference(data?.delivery_preference === "delivery" ? "delivery" : "pickup"); setShipmentEmails(data?.shipment_status_emails ?? true); setDeliveryReminders(data?.delivery_reminders ?? true); }).catch(() => undefined); }, [userId]);
-  const save = async (event: FormEvent) => { event.preventDefault(); const profileResult = await updateProfile(userId, { full_name: name.trim(), phone: whatsapp.trim() || null, shipment_status_emails: shipmentEmails, delivery_reminders: deliveryReminders }); if (profileResult.error) { setMessage(profileResult.error.message); return; } const preferenceResult = await updateDeliveryPreference(userId, preference); if (preferenceResult.error) { setMessage(preferenceResult.error.message); return; } const emailResult = email.trim() ? await updateEmail(email.trim()) : { error: null }; if (emailResult.error) { setMessage(emailResult.error.message); return; } if (newPassword) { const passwordResult = await updatePassword(newPassword); if (passwordResult.error) { setMessage(passwordResult.error.message); return; } setNewPassword(""); } setMessage("Account settings saved."); };
-  return <section className="portal-card"><h2>Account Settings</h2><p className="muted">Update your profile, login credentials, and package collection preference.</p><form onSubmit={save}><div className="form-grid"><label>Full name<input value={name} onChange={event => setName(event.target.value)} required /></label><label>WhatsApp number <span className="muted">(optional)</span><input type="tel" value={whatsapp} onChange={event => setWhatsapp(event.target.value)} placeholder="+1 876 555 0123" /></label><label>Email address<input type="email" value={email} onChange={event => setEmail(event.target.value)} required /></label><label>New password <span className="muted">(optional)</span><input type="password" value={newPassword} onChange={event => setNewPassword(event.target.value)} placeholder="Leave blank to keep current password" /></label></div><h3>Package collection</h3><div className="preference-options"><label className={preference === "pickup" ? "preference-option selected" : "preference-option"}><input type="radio" name="collection" checked={preference === "pickup"} onChange={() => setPreference("pickup")} /><span><b>Pickup</b><small>Top Hill, St Elizabeth</small></span></label><label className={preference === "delivery" ? "preference-option selected" : "preference-option"}><input type="radio" name="collection" checked={preference === "delivery"} onChange={() => setPreference("delivery")} /><span><b>Delivery</b><small>Additional delivery cost applies <Info size={13} aria-label="Delivery has an additional cost based on your location and package." /></small></span></label></div><button className="button" type="submit">Save settings</button>{message && <div className="notice"><CheckCircle2 size={17} />{message}</div>}</form><h3>Notifications</h3><label className="check-option"><input type="checkbox" checked={shipmentEmails} onChange={event => setShipmentEmails(event.target.checked)} /> Shipment status emails</label><label className="check-option"><input type="checkbox" checked={deliveryReminders} onChange={event => setDeliveryReminders(event.target.checked)} /> Delivery reminders</label></section>;
+  const loadProfile = async () => {
+    const [{ data, error: profileError }, { data: trnRow, error: trnError }] = await Promise.all([getProfile(userId), hasCustomerTrn(userId)]);
+    if (profileError) throw profileError;
+    if (trnError) throw trnError;
+    setProfile(data);
+    setFirstName(data?.first_name ?? "");
+    setLastName(data?.last_name ?? "");
+    setAddressLine1(data?.address_line1 ?? "");
+    setAddressLine2(data?.address_line2 ?? "");
+    setCityTown(data?.city_town ?? "");
+    setParish(data?.parish ?? "");
+    setMobile(data?.phone ?? "");
+    setEmail(data?.email ?? "");
+    setPreference(data?.delivery_preference === "delivery" ? "delivery" : "pickup");
+    setShipmentEmails(data?.shipment_status_emails ?? true);
+    setDeliveryReminders(data?.delivery_reminders ?? true);
+    setHasTrn(Boolean(trnRow));
+  };
+  useEffect(() => { loadProfile().catch(loadError => setError(loadError instanceof Error ? loadError.message : "Unable to load account settings.")); }, [userId]);
+  const cancel = async () => {
+    setError(""); setMessage(""); setTrn(""); setNewPassword(""); setCurrentPassword("");
+    try { await loadProfile(); setEditing(false); }
+    catch (loadError) { setError(loadError instanceof Error ? loadError.message : "Unable to reload account settings."); }
+  };
+  const save = async (event: FormEvent) => {
+    event.preventDefault();
+    setError(""); setMessage("");
+    const normalizedMobile = mobile.replace(/\D/g, "");
+    if (!firstName.trim() || !lastName.trim() || !addressLine1.trim() || !cityTown.trim() || !parish || !/^(876|658)\d{7}$/.test(normalizedMobile)) {
+      setError("Enter your name, delivery address, parish, and valid Jamaican 10-digit mobile number.");
+      return;
+    }
+    if (trn && !/^\d{9}$/.test(trn)) { setError("TRN must contain exactly 9 digits."); return; }
+    if (newPassword && newPassword.length < 8) { setError("Password must contain at least 8 characters."); return; }
+    const emailChanged = Boolean(email.trim() && email.trim().toLowerCase() !== profile?.email?.toLowerCase());
+    if ((emailChanged || trn || newPassword) && !currentPassword) { setError("Enter your current password to confirm email, TRN, or password changes."); return; }
+    setSaving(true);
+    try {
+      if (emailChanged || trn || newPassword) {
+        const verification = await signIn(profile?.email ?? "", currentPassword);
+        if (verification.error) throw new Error("Current password could not be verified.");
+      }
+      const fullName = `${firstName.trim()} ${lastName.trim()}`.trim();
+      const profileResult = await updateProfile(userId, {
+        full_name: fullName,
+        first_name: firstName.trim(),
+        last_name: lastName.trim(),
+        phone: normalizedMobile,
+        address_line1: addressLine1.trim(),
+        address_line2: addressLine2.trim() || null,
+        city_town: cityTown.trim(),
+        parish,
+        shipment_status_emails: shipmentEmails,
+        delivery_reminders: deliveryReminders,
+      });
+      if (profileResult.error) throw profileResult.error;
+      const preferenceResult = await updateDeliveryPreference(userId, preference);
+      if (preferenceResult.error) throw preferenceResult.error;
+      if (trn) {
+        const trnResult = await updateCustomerTrn(userId, trn);
+        if (trnResult.error) throw trnResult.error;
+        setHasTrn(true);
+        setTrn("");
+      }
+      const emailResult = emailChanged ? await updateEmail(email.trim()) : { error: null };
+      if (emailResult.error) throw emailResult.error;
+      if (newPassword) {
+        const passwordResult = await updatePassword(newPassword);
+        if (passwordResult.error) throw passwordResult.error;
+        setNewPassword("");
+      }
+      setProfile({ ...profileResult.data, delivery_preference: preference });
+      setEditing(false);
+      setCurrentPassword("");
+      setMessage(emailChanged ? "Profile saved. Check your inbox to confirm the new email address." : "Profile saved.");
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Unable to save account settings.");
+    } finally {
+      setSaving(false);
+    }
+  };
+  return <section className="portal-card">
+    <div className="card-title"><div><h2>Account Settings</h2><p className="muted">Manage your profile, delivery location, login credentials, and notifications.</p></div>{!editing && <button className="button button-small" type="button" onClick={() => { setError(""); setMessage(""); setEditing(true); }}>Edit profile</button>}</div>
+    <form onSubmit={save}>
+      <div className="form-grid">
+        <label>First name<input value={firstName} onChange={event => setFirstName(event.target.value)} disabled={!editing} required /></label>
+        <label>Last name<input value={lastName} onChange={event => setLastName(event.target.value)} disabled={!editing} required /></label>
+        <label>Address line 1<input value={addressLine1} onChange={event => setAddressLine1(event.target.value)} disabled={!editing} required /></label>
+        <label>Address line 2 <span className="muted">(optional)</span><input value={addressLine2} onChange={event => setAddressLine2(event.target.value)} disabled={!editing} /></label>
+        <label>City / Town<input value={cityTown} onChange={event => setCityTown(event.target.value)} disabled={!editing} required /></label>
+        <label>Parish<select value={parish} onChange={event => setParish(event.target.value)} disabled={!editing} required><option value="">Select parish</option>{jamaicanParishes.map(item => <option key={item} value={item}>{item}</option>)}</select></label>
+        <label>Mobile number<input type="tel" value={mobile} onChange={event => setMobile(event.target.value)} disabled={!editing} required /></label>
+        <label>Email address<input type="email" value={email} onChange={event => setEmail(event.target.value)} disabled={!editing} required /></label>
+        <label>TRN {hasTrn && <span className="muted">on file: •••••••••</span>}<input type="password" inputMode="numeric" value={trn} onChange={event => setTrn(event.target.value.replace(/\D/g, "").slice(0, 9))} disabled={!editing} maxLength={9} placeholder={hasTrn ? "Enter a new TRN to replace" : "Enter 9-digit TRN"} autoComplete="new-password" /></label>
+        <label>New password <span className="muted">(optional)</span><input type="password" value={newPassword} onChange={event => setNewPassword(event.target.value)} disabled={!editing} placeholder="Leave blank to keep current password" autoComplete="new-password" /></label>
+        {editing && <label>Current password <span className="muted">(required for sensitive changes)</span><input type="password" value={currentPassword} onChange={event => setCurrentPassword(event.target.value)} autoComplete="current-password" /></label>}
+        <label>Referral code<input value={profile?.referral_code ?? ""} readOnly aria-label="Your referral code (read only)" /></label>
+      </div>
+      <h3>Package collection</h3><div className="preference-options"><label className={preference === "pickup" ? "preference-option selected" : "preference-option"}><input type="radio" name="collection" checked={preference === "pickup"} disabled={!editing} onChange={() => setPreference("pickup")} /><span><b>Pickup</b><small>Top Hill, St Elizabeth</small></span></label><label className={preference === "delivery" ? "preference-option selected" : "preference-option"}><input type="radio" name="collection" checked={preference === "delivery"} disabled={!editing} onChange={() => setPreference("delivery")} /><span><b>Delivery</b><small>Additional delivery cost may apply <Info size={13} aria-label="Delivery charges depend on your location and package." /></small></span></label></div>
+      <h3>Notifications</h3><label className="check-option"><input type="checkbox" checked={shipmentEmails} disabled={!editing} onChange={event => setShipmentEmails(event.target.checked)} /> Shipment status emails</label><label className="check-option"><input type="checkbox" checked={deliveryReminders} disabled={!editing} onChange={event => setDeliveryReminders(event.target.checked)} /> Delivery reminders</label>
+      {editing && <div className="notification-actions"><button className="button" type="submit" disabled={saving}>{saving ? "Saving..." : "Save changes"}</button><button className="button button-secondary" type="button" onClick={() => void cancel()} disabled={saving}>Cancel</button></div>}
+      {error && <p className="form-error">{error}</p>}{message && <div className="notice"><CheckCircle2 size={17} />{message}</div>}
+    </form>
+  </section>;
+}
+
+function ReferralWorkspace() {
+  const [summary, setSummary] = useState<ReferralSummary | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  useEffect(() => {
+    getReferralSummary().then(setSummary)
+      .catch(loadError => setError(loadError instanceof Error ? loadError.message : "Unable to load referral details."))
+      .finally(() => setLoading(false));
+  }, []);
+  const code = summary?.profile.referral_code ?? "";
+  const discountOffer = summary?.profile.program_enabled ? `JMD $${summary.profile.discount_per_lb} off per chargeable pound` : "JetSpeed referral benefits";
+  const deliveryOffer = summary?.profile.free_delivery_enabled ? ", plus free local delivery in eligible areas" : "";
+  const invitation = `Ship with JetSpeed Couriers and enjoy ${discountOffer} on qualifying shipments${deliveryOffer}. Register using my referral code: ${code}. Visit https://jetspeedja.com`;
+  const copyCode = async () => {
+    try { await navigator.clipboard.writeText(code); setMessage("Referral code copied."); }
+    catch { setError("Unable to copy the referral code. Select and copy it manually."); }
+  };
+  if (loading) return <section className="portal-card"><h2>Referral & Rewards</h2><p className="muted">Loading your referral details...</p></section>;
+  if (error && !summary) return <section className="portal-card"><h2>Referral & Rewards</h2><p className="form-error">{error}</p></section>;
+  return <section className="portal-card referral-workspace">
+    <div className="card-title"><div><h2>Referral & Rewards</h2><p className="muted">Share your code and earn shipping savings together.</p></div><Gift className="referral-icon" size={28} /></div>
+    <div className="referral-code-card"><span>MY REFERRAL CODE</span><strong>{code || "Not available"}</strong><div className="notification-actions"><button className="button button-small" type="button" onClick={() => void copyCode()} disabled={!code}><Copy size={15} /> Copy code</button><a className="button button-small whatsapp" href={`https://wa.me/?text=${encodeURIComponent(invitation)}`} target="_blank" rel="noreferrer">Share on WhatsApp</a></div></div>
+    {message && <div className="notice"><CheckCircle2 size={17} />{message}</div>}
+    {error && <p className="form-error">{error}</p>}
+    <div className="referral-stats">
+      <div><small>Total people referred</small><strong>{summary?.statistics.total_referred ?? 0}</strong></div>
+      <div><small>Registered referrals</small><strong>{summary?.statistics.registered ?? 0}</strong></div>
+      <div><small>Awaiting first paid shipment</small><strong>{summary?.statistics.awaiting_first_shipment ?? 0}</strong></div>
+      <div><small>Successful referrals</small><strong>{summary?.statistics.successful ?? 0}</strong></div>
+      <div><small>Shipping discounts received</small><strong>JMD ${Number(summary?.statistics.benefits_earned_jmd ?? 0).toLocaleString("en-JM")}</strong></div>
+      <div><small>Your discount eligibility</small><strong>{summary?.profile.discount_eligible ? "Active" : "Not active"}</strong></div>
+    </div>
+    <div className="table-wrap"><table><thead><tr><th>Referred customer</th><th>Registration date</th><th>Referral status</th><th>First shipment</th><th>Reward activated</th></tr></thead><tbody>
+      {summary?.referrals.length ? summary.referrals.map(referral => <tr key={referral.id}><td>{referral.referred_customer}</td><td>{new Date(referral.created_at).toLocaleDateString()}</td><td>{referral.status.replace(/_/g, " ")}</td><td>{referral.first_shipment_status}</td><td>{referral.reward_activated_at ? new Date(referral.reward_activated_at).toLocaleDateString() : "—"}</td></tr>) : <tr><td colSpan={5}>No referrals yet. Share your code to get started.</td></tr>}
+    </tbody></table></div>
+  </section>;
+}
+
+function ReferralManagementWorkspace() {
+  const [management, setManagement] = useState<ReferralManagementData | null>(null);
+  const [settings, setSettings] = useState<ReferralManagementData["settings"] | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  const [page, setPage] = useState(0);
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [community, setCommunity] = useState("");
+  const [communityParish, setCommunityParish] = useState("");
+  const load = async (targetPage = page, searchTerm = search, status = statusFilter) => {
+    setLoading(true);
+    try {
+      const data = await getReferralManagement(targetPage, searchTerm, status);
+      setManagement(data);
+      setSettings(data.settings);
+      setError("");
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "Unable to load referral management.");
+    } finally {
+      setLoading(false);
+    }
+  };
+  useEffect(() => { void load(page, search, statusFilter); }, [page, search, statusFilter]);
+  const updateCustomer = async (customerId: string, values: { discount_eligible?: boolean; free_delivery_override?: boolean | null }) => {
+    setError(""); setMessage("");
+    try {
+      await updateReferralCustomerEligibility(customerId, values);
+      setMessage("Customer referral benefits updated.");
+      await load(page, search);
+    } catch (updateError) {
+      setError(updateError instanceof Error ? updateError.message : "Unable to update customer benefits.");
+    }
+  };
+  const saveSettings = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!settings) return;
+    setSaving(true); setError(""); setMessage("");
+    try {
+      const saved = await updateReferralSettings(settings);
+      setSettings(saved);
+      setMessage("Referral settings saved.");
+      await load(page, search);
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Unable to save referral settings.");
+    } finally {
+      setSaving(false);
+    }
+  };
+  const addArea = async (event: FormEvent) => {
+    event.preventDefault();
+    setError(""); setMessage("");
+    try {
+      await addReferralDeliveryArea(community, communityParish);
+      setCommunity(""); setCommunityParish("");
+      setMessage("Eligible delivery area saved.");
+      await load(page, search);
+    } catch (areaError) {
+      setError(areaError instanceof Error ? areaError.message : "Unable to save delivery area.");
+    }
+  };
+  const removeArea = async (id: string) => {
+    setError(""); setMessage("");
+    try { await removeReferralDeliveryArea(id); setMessage("Eligible delivery area removed."); await load(page, search); }
+    catch (areaError) { setError(areaError instanceof Error ? areaError.message : "Unable to remove delivery area."); }
+  };
+  const exportReport = async () => {
+    try {
+      if (!management) return;
+      const firstPage = await getReferralManagement(0, "", "all");
+      const all = [...firstPage.referrals];
+      const pageCount = Math.ceil(firstPage.total_referrals / firstPage.page_size);
+      for (let nextPage = 1; nextPage < pageCount; nextPage += 1) {
+        const pageData = await getReferralManagement(nextPage, "", "all");
+        all.push(...pageData.referrals);
+      }
+      const rows = [["Referrer", "Referral code", "Referred customer", "Registration date", "Status", "First paid shipment", "Discount eligible"], ...all.map(referral => [
+        referral.referrer, referral.referrer_code, referral.referred_customer, referral.registered_at, referral.status,
+        referral.first_paid_shipment_at ?? "", referral.discount_eligible ? "Yes" : "No",
+      ])];
+      const csv = rows.map(row => row.map(value => `"${String(value).replace(/"/g, '""')}"`).join(",")).join("\n");
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+      link.download = `jetspeed-referral-report-${new Date().toISOString().slice(0, 10)}.csv`;
+      link.click(); URL.revokeObjectURL(link.href);
+    } catch (exportError) {
+      setError(exportError instanceof Error ? exportError.message : "Unable to export referral report.");
+    }
+  };
+  const visibleReferrals = (management?.referrals ?? []).filter(referral =>
+    (statusFilter === "all" || referral.status === statusFilter)
+    && `${referral.referrer} ${referral.referrer_code} ${referral.referred_customer}`.toLowerCase().includes(search.toLowerCase()));
+  const visibleCustomers = (management?.customers ?? []).filter(customer =>
+    `${customer.name} ${customer.referral_code}`.toLowerCase().includes(search.toLowerCase()));
+  if (loading && !management) return <section className="portal-card"><h2>Referral Management</h2><p className="muted">Loading referral programme...</p></section>;
+  if (error && !management) return <section className="portal-card"><h2>Referral Management</h2><p className="form-error">{error}</p></section>;
+  if (!management || !settings) return null;
+  const stats = management.statistics;
+  return <section className="portal-card referral-admin-workspace">
+    <div className="card-title"><div><h2>Referral Management</h2><p className="muted">Configure benefits, monitor referrals, and manage delivery eligibility.</p></div><button className="button button-small" onClick={() => void exportReport()}>Export report</button></div>
+    {error && <p className="form-error">{error}</p>}{message && <div className="notice"><CheckCircle2 size={17} />{message}</div>}
+    <div className="referral-stats admin-referral-stats">
+      <div><small>Referral codes generated</small><strong>{stats.total_codes}</strong></div>
+      <div><small>Registered referrals</small><strong>{stats.registered_referrals}</strong></div>
+      <div><small>Successful referrals</small><strong>{stats.successful_referrals}</strong></div>
+      <div><small>Pending activations</small><strong>{stats.pending_activations}</strong></div>
+      <div><small>Customers receiving discounts</small><strong>{stats.eligible_customers}</strong></div>
+      <div><small>Total referral discounts</small><strong>JMD ${stats.discounts_applied_jmd.toLocaleString("en-JM")}</strong></div>
+      <div><small>Referred shipping revenue</small><strong>JMD ${stats.referred_shipping_revenue_jmd.toLocaleString("en-JM")}</strong></div>
+    </div>
+    <section className="referral-admin-section"><h3>Programme settings</h3><form className="form-grid" onSubmit={saveSettings}>
+      <label className="check-option"><input type="checkbox" checked={settings.enabled} onChange={event => setSettings(current => current ? { ...current, enabled: event.target.checked } : current)} /> Referral shipping discount enabled</label>
+      <label>Discount per chargeable pound (JMD)<input type="number" min="0" step="0.01" value={settings.discount_per_lb} onChange={event => setSettings(current => current ? { ...current, discount_per_lb: Number(event.target.value) } : current)} required /></label>
+      <label>Referrer benefit activates<select value={settings.referrer_activation} onChange={event => setSettings(current => current ? { ...current, referrer_activation: event.target.value as "registration" | "first_paid_shipment" } : current)}><option value="first_paid_shipment">After first paid shipment</option><option value="registration">At registration</option></select></label>
+      <label className="check-option"><input type="checkbox" checked={settings.free_delivery_enabled} onChange={event => setSettings(current => current ? { ...current, free_delivery_enabled: event.target.checked } : current)} /> Free local referral delivery enabled</label>
+      <button className="button" type="submit" disabled={saving}>{saving ? "Saving..." : "Save referral settings"}</button>
+    </form></section>
+    <section className="referral-admin-section"><h3>Eligible free-delivery communities</h3><form className="inline-form" onSubmit={event => void addArea(event)}>
+      <input value={community} onChange={event => setCommunity(event.target.value)} placeholder="Community" required />
+      <input value={communityParish} onChange={event => setCommunityParish(event.target.value)} placeholder="Parish" required />
+      <button className="button button-small" type="submit">Add area</button>
+    </form><div className="referral-area-list">{management.areas.map(area => <div key={area.id}><span>{area.community}, {area.parish}</span><button className="icon-action danger" type="button" onClick={() => void removeArea(area.id)} aria-label={`Remove ${area.community}`} title="Remove area"><Trash2 size={15} /></button></div>)}</div></section>
+    <section className="referral-admin-section"><div className="card-title"><h3>Referral activity</h3><div className="toolbar"><input aria-label="Search referrals and customers" value={search} onChange={event => { setSearch(event.target.value); setPage(0); }} placeholder="Search customer or referral code" /><select aria-label="Filter referrals by status" value={statusFilter} onChange={event => { setStatusFilter(event.target.value); setPage(0); }}><option value="all">All statuses</option><option value="registered">Awaiting first paid shipment</option><option value="successful">Successful</option><option value="revoked">Revoked</option></select></div></div>
+      <div className="table-wrap"><table><thead><tr><th>Referrer</th><th>Code</th><th>Referred customer</th><th>Registered</th><th>Status</th><th>First paid shipment</th><th>Discount</th></tr></thead><tbody>{visibleReferrals.length ? visibleReferrals.map(referral => <tr key={referral.id}><td>{referral.referrer}</td><td>{referral.referrer_code}</td><td>{referral.referred_customer}</td><td>{new Date(referral.registered_at).toLocaleDateString()}</td><td>{referral.status.replace(/_/g, " ")}</td><td>{referral.first_paid_shipment_at ? new Date(referral.first_paid_shipment_at).toLocaleDateString() : "—"}</td><td>{referral.discount_eligible ? "Eligible" : "Not eligible"}</td></tr>) : <tr><td colSpan={7}>No referrals match this search.</td></tr>}</tbody></table></div>
+      <div className="referral-pagination"><button className="button button-small button-secondary" disabled={page === 0 || loading} onClick={() => setPage(current => Math.max(0, current - 1))}>Previous</button><span>Page {page + 1} of {Math.max(1, Math.ceil(management.total_referrals / management.page_size))}</span><button className="button button-small button-secondary" disabled={(page + 1) * management.page_size >= management.total_referrals || loading} onClick={() => setPage(current => current + 1)}>Next</button></div>
+    </section>
+    <section className="referral-admin-section"><h3>Customer benefits and eligibility</h3><div className="table-wrap"><table><thead><tr><th>Customer</th><th>Referral code</th><th>Discount eligible</th><th>Delivery location</th><th>Free local delivery</th><th>Eligibility override</th></tr></thead><tbody>{visibleCustomers.length ? visibleCustomers.slice(0, 100).map(customer => <tr key={customer.id}><td>{customer.name}</td><td>{customer.referral_code}</td><td><label className="check-option"><input type="checkbox" checked={customer.discount_eligible} onChange={event => void updateCustomer(customer.id, { discount_eligible: event.target.checked })} /> Active</label></td><td>{customer.city_town || "—"}{customer.parish ? `, ${customer.parish}` : ""}</td><td>{customer.free_delivery_eligible ? "Eligible" : "Not eligible"}</td><td><select aria-label={`Free delivery override for ${customer.name}`} value={customer.free_delivery_override === null ? "automatic" : customer.free_delivery_override ? "eligible" : "ineligible"} onChange={event => void updateCustomer(customer.id, { free_delivery_override: event.target.value === "automatic" ? null : event.target.value === "eligible" })}><option value="automatic">Automatic</option><option value="eligible">Eligible</option><option value="ineligible">Ineligible</option></select></td></tr>) : <tr><td colSpan={6}>No customers match this search.</td></tr>}</tbody></table></div>{visibleCustomers.length > 100 && <p className="muted">Showing the first 100 customers. Refine your search to see others.</p>}</section>
+    <section className="referral-admin-section"><h3>Most successful referrers</h3><div className="referral-area-list">{stats.top_referrers.length ? stats.top_referrers.map(item => <div key={item.referral_code}><span>{item.customer} · {item.referral_code}</span><strong>{item.successful_referrals} successful</strong></div>) : <p className="muted">No successful referrals yet.</p>}</div></section>
+  </section>;
 }
 function ReportsWorkspace({ shipments, payments }: { shipments: any[]; payments: any[] }) {
   const download = () => {
@@ -470,7 +774,7 @@ function buildPaymentSeries(rows: any[]) {
 function LiveChart({ title, data, dataKey, color, empty }: { title: string; data: any[]; dataKey: string; color: string; empty: boolean }) {
   return <div className="chart-card"><h3>{title}</h3>{empty ? <p className="muted chart-empty">No live records available for this chart.</p> : <ResponsiveContainer width="100%" height={230}>{dataKey === "revenue" ? <BarChart data={data}><CartesianGrid strokeDasharray="3 3" stroke="#e4eaf3" /><XAxis dataKey="day" /><YAxis /><Tooltip formatter={(value) => [`JMD $${Number(value ?? 0).toLocaleString("en-JM")}`, "Revenue"]} /><Bar dataKey={dataKey} fill={color} radius={[5, 5, 0, 0]} /></BarChart> : <LineChart data={data}><CartesianGrid strokeDasharray="3 3" stroke="#e4eaf3" /><XAxis dataKey="day" /><YAxis allowDecimals={false} /><Tooltip /><Line type="monotone" dataKey={dataKey} stroke={color} strokeWidth={3} dot={{ r: 3 }} /></LineChart>}</ResponsiveContainer>}</div>;
 }
-function AdminWorkspace({ active, tickets, shipments, profiles, payments, invoices, userId, canChangeRoles, onViewCustomer, onTicketStatusChange, onShipmentCreated, onShipmentDeleted }: { active: string; tickets: Ticket[]; shipments: any[]; profiles: any[]; payments: any[]; invoices: any[]; userId: string; canChangeRoles: boolean; onViewCustomer: (profile: any) => void; onTicketStatusChange: (ticketId: string, status: string) => Promise<void>; onShipmentCreated: (shipment: any) => void; onShipmentDeleted: (packageId: string) => void }) {
+function AdminWorkspace({ active, tickets, shipments, profiles, payments, invoices, userId, canChangeRoles, onViewCustomer, onTicketStatusChange, onShipmentCreated, onShipmentUpdated, onInvoicesUpdated, onShipmentDeleted }: { active: string; tickets: Ticket[]; shipments: any[]; profiles: any[]; payments: any[]; invoices: any[]; userId: string; canChangeRoles: boolean; onViewCustomer: (profile: any) => void; onTicketStatusChange: (ticketId: string, status: string) => Promise<void>; onShipmentCreated: (shipment: any) => void; onShipmentUpdated: (shipment: any) => void; onInvoicesUpdated: (invoices: any[]) => void; onShipmentDeleted: (packageId: string) => void }) {
   const [roleChanges, setRoleChanges] = useState<Record<string, "customer" | "support" | "admin">>({});
   const [userSearch, setUserSearch] = useState("");
   const [roleMessage, setRoleMessage] = useState("");
@@ -479,28 +783,44 @@ function AdminWorkspace({ active, tickets, shipments, profiles, payments, invoic
   const saveRole = async (profileId: string) => { const role = roleChanges[profileId]; if (!role) return; const result = await updateUserRole(profileId, role); setRoleMessage(result.error ? `Unable to update role: ${result.error.message}` : "User role updated."); };
   const [statusById, setStatusById] = useState<Record<string, string>>({});
   const [weightById, setWeightById] = useState<Record<string, string>>({});
-  const [savedAmounts, setSavedAmounts] = useState<Record<string, number>>({});
+  const [savingPackageById, setSavingPackageById] = useState<Record<string, boolean>>({});
   const [newShipmentOpen, setNewShipmentOpen] = useState(false);
   const [localInvoices, setLocalInvoices] = useState(invoices);
-  const saveMilestone = async (shipment: any) => {
-    const status = statusById[shipment.id] || shipment.status;
-    const labels: Record<string, string> = { label_created: "Label created", received_at_miami: "Received at Miami hub", in_transit: "In transit", ready_for_pickup: "Ready for pickup/Delivery" };
-    await updateShipmentMilestone(shipment.id, status, labels[status], status === "received_at_miami" ? "Miami hub" : status === "in_transit" ? "In transit" : "JetSpeed network");
-  };
-  const saveWeight = async (shipment: any) => {
-    const weight = Number(weightById[shipment.id]);
-    if (!Number.isFinite(weight) || weight <= 0) return;
+  useEffect(() => setLocalInvoices(invoices), [invoices]);
+  const savePackage = async (shipment: any) => {
+    const enteredWeight = weightById[shipment.id] ?? shipment.weight_lb;
+    const weight = enteredWeight === "" || enteredWeight === null || enteredWeight === undefined ? null : Number(enteredWeight);
+    if (weight !== null && (!Number.isFinite(weight) || weight <= 0)) {
+      window.alert("Enter a package weight greater than zero.");
+      return;
+    }
     const freightType = (shipment.freight_type === "sea" ? "sea" : "air") as "air" | "sea";
-    const result = await updatePackageWeight(shipment.id, weight, freightType);
-    if (!result.error) setSavedAmounts(current => ({ ...current, [shipment.id]: result.data.collection_amount_jmd }));
+    const status = statusById[shipment.id] || shipment.status;
+    setSavingPackageById(current => ({ ...current, [shipment.id]: true }));
+    try {
+      const result = await updatePackageProcessing(shipment.id, status, weight, freightType);
+      onShipmentUpdated({ ...shipment, ...result });
+      if (status === "ready_for_pickup") {
+        const invoiceRows = await listAllInvoices();
+        if (invoiceRows.error) window.alert(`Package saved, but invoices could not be refreshed: ${invoiceRows.error.message}`);
+        else onInvoicesUpdated(invoiceRows.data ?? []);
+      }
+      if (result.email?.error) window.alert(`Package saved, but the ready notification email was not sent: ${result.email.error}`);
+      if (result.warnings?.length) window.alert(result.warnings.join("\n"));
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : "Unable to save package changes.");
+    } finally {
+      setSavingPackageById(current => ({ ...current, [shipment.id]: false }));
+    }
   };
   if (active === "Announcements & Updates") return <AnnouncementsWorkspace />;
+  if (active === "Referral Management" && canChangeRoles) return <ReferralManagementWorkspace />;
   if (active === "Dashboard") { const inTransit = shipments.filter(shipment => shipment.status === "in_transit").length; const delivered = shipments.filter(shipment => shipment.status === "delivered").length; const shipmentTrend = buildDailySeries(shipments, "count"); const revenueTrend = buildPaymentSeries(payments); return <><div className="stats"><Stat icon={<Package />} value={String(shipments.length)} label="Shipments" /><Stat icon={<Truck />} value={String(inTransit)} label="In transit" accent /><Stat icon={<CheckCircle2 />} value={String(delivered)} label="Delivered" green /></div><section className="portal-card"><h2>Dashboard analytics</h2><p className="muted">Live operational counts from Supabase. Financial totals appear when payment records are available.</p><div className="analytics-grid"><div><b>Total users</b><strong>{profiles.length}</strong><span>Registered profiles</span></div><div><b>Total shipments</b><strong>{shipments.length}</strong><span>Current package records</span></div><div><b>Invoices uploaded</b><strong>{shipments.filter(shipment => shipment.invoice_uploaded).length}</strong><span>Linked package invoices</span></div><div><b>Open tickets</b><strong>{tickets.filter(ticket => ticket.status !== "closed").length}</strong><span>Customer support queue</span></div></div><div className="chart-grid"><LiveChart title="Shipments over time" data={shipmentTrend} dataKey="shipments" color="#1675D1" empty={!shipments.length} /><LiveChart title="Revenue from payments (JMD)" data={revenueTrend} dataKey="revenue" color="#FF7900" empty={!payments.length} /></div></section></>; }
   if (active === "Reports") return <ReportsWorkspace shipments={shipments} payments={payments} />;
   if (active === "Services") return <ServicesWorkspace />;
   if (active === "System Logs") return <SystemLogsWorkspace />;
   if (active === "Payments") return <PaymentWorkspace shipments={shipments} payments={payments} userId={userId} />;
-  if (active === "Invoices") return <section className="portal-card"><div className="card-title"><div><h2>Invoices</h2><p className="muted">Uploaded invoices loaded from Supabase.</p></div></div><div className="table-wrap"><table><thead><tr><th>Invoice</th><th>Status</th><th>Created</th><th>Action</th></tr></thead><tbody>{localInvoices.length ? localInvoices.map(invoice => <tr key={invoice.id}><td><b>{invoice.invoice_number || "Uploaded invoice"}</b></td><td><span className="status">{invoice.status}</span></td><td>{new Date(invoice.created_at).toLocaleString()}</td><td><div className="record-actions">{invoice.file_path && <button className="icon-action email" onClick={async () => { const result = await getInvoiceDownloadUrl(invoice.file_path); if (result.error || !result.data?.signedUrl) window.alert(result.error?.message || "Unable to open invoice."); else window.open(result.data.signedUrl, "_blank", "noopener,noreferrer"); }} aria-label="View or download invoice" title="View or download invoice"><FileText size={16} /></button>}<button className="icon-action danger" onClick={async () => { if (!window.confirm("Delete this invoice record?")) return; const result = await deleteInvoice(invoice.id); if (result.error) window.alert(result.error.message); else setLocalInvoices(current => current.filter(item => item.id !== invoice.id)); }} aria-label="Delete invoice" title="Delete invoice"><Trash2 size={16} /></button></div></td></tr>) : <tr><td colSpan={4}>No invoice records are available.</td></tr>}</tbody></table></div></section>;
+  if (active === "Invoices") return <section className="portal-card"><div className="card-title"><div><h2>Invoices</h2><p className="muted">Review customer uploads and server-calculated shipping invoices.</p></div></div><div className="table-wrap"><table><thead><tr><th>Invoice</th><th>Package</th><th>Amount</th><th>Pricing breakdown</th><th>Status</th><th>Created</th><th>Action</th></tr></thead><tbody>{localInvoices.length ? localInvoices.map(invoice => { const pricing = invoice.pricing_breakdown; const packageLink = invoice.packages; return <tr key={invoice.id}><td><b>{invoice.invoice_number || "Uploaded invoice"}</b><br /><small>{invoice.invoice_kind === "shipping_charge" ? "Shipping charge" : "Uploaded document"}</small></td><td>{packageLink?.tracking_number || "—"}</td><td>{invoice.currency || "JMD"} ${Number(invoice.amount || 0).toLocaleString("en-JM")}</td><td>{pricing ? <div className="package-price-breakdown"><small>Normal shipping: JMD ${Number(pricing.normal_shipping_charge_jmd).toLocaleString("en-JM")}</small>{Number(pricing.referral_discount_jmd) > 0 && <small>Referral discount: -JMD ${Number(pricing.referral_discount_jmd).toLocaleString("en-JM")}</small>}<small>Local delivery: {pricing.local_delivery_free ? "FREE" : "Standard charges may apply"}</small></div> : "—"}</td><td><span className="status">{invoice.status}</span></td><td>{new Date(invoice.created_at).toLocaleString()}</td><td><div className="record-actions">{invoice.file_path && <button className="icon-action email" onClick={async () => { const result = await getInvoiceDownloadUrl(invoice.file_path); if (result.error || !result.data?.signedUrl) window.alert(result.error?.message || "Unable to open invoice."); else window.open(result.data.signedUrl, "_blank", "noopener,noreferrer"); }} aria-label="View or download invoice" title="View or download invoice"><FileText size={16} /></button>}<button className="icon-action danger" onClick={async () => { if (!window.confirm("Delete this invoice record?")) return; const result = await deleteInvoice(invoice.id); if (result.error) window.alert(result.error.message); else setLocalInvoices(current => current.filter(item => item.id !== invoice.id)); }} aria-label="Delete invoice" title="Delete invoice"><Trash2 size={16} /></button></div></td></tr>; }) : <tr><td colSpan={7}>No invoice records are available.</td></tr>}</tbody></table></div></section>;
   if (active === "Support Tickets") return <section className="portal-card"><h2>Support Tickets</h2><p className="muted">Tickets submitted by customers. Use the contact actions to reply directly.</p><div className="table-wrap"><table><thead><tr><th>ID</th><th>Customer / query</th><th>Category</th><th>Priority</th><th>Status</th><th>Reply</th></tr></thead><tbody>{tickets.length ? tickets.map(t => { const contact = (t as any).profiles || {}; const firstName = contact.full_name?.split(" ")[0] || "there"; const reply = `Hi ${firstName},\n\nThank you for contacting JetSpeed Couriers regarding "${t.subject}".\n\nWe have reviewed your message:\n"${t.message}"\n\nOur support team will assist you with the next steps.\n\nRegards,\nJetSpeed Couriers`; return <tr key={t.id}><td><b>{t.id.slice(0, 8)}</b></td><td><b>{contact.full_name || "Customer"}</b><br /><small>{t.subject}: {t.message}</small></td><td>{t.category}</td><td><span className="status">{t.priority}</span></td><td><select aria-label={`Status for ticket ${t.id.slice(0, 8)}`} value={t.status || "open"} disabled={!!ticketStatusPending[t.id]} onChange={async event => { const status = event.target.value; setTicketStatusPending(current => ({ ...current, [t.id]: true })); setTicketStatusErrors(current => ({ ...current, [t.id]: "" })); try { await onTicketStatusChange(t.id, status); } catch (statusError) { setTicketStatusErrors(current => ({ ...current, [t.id]: statusError instanceof Error ? statusError.message : "Unable to update ticket status." })); } finally { setTicketStatusPending(current => ({ ...current, [t.id]: false })); } }}><option value="open">Open</option><option value="in_progress">In progress</option><option value="resolved">Resolved</option><option value="closed">Closed</option></select>{ticketStatusErrors[t.id] && <small className="form-error">{ticketStatusErrors[t.id]}</small>}</td><td><div className="notification-actions">{contact.phone && <a className="icon-action whatsapp" href={`https://wa.me/${String(contact.phone).replace(/\D/g, "")}?text=${encodeURIComponent(reply)}`} target="_blank" rel="noreferrer" title="Reply on WhatsApp" aria-label="Reply on WhatsApp"><MessageCircle size={17} /></a>}{contact.email && <a className="icon-action email" href={`mailto:${contact.email}?subject=${encodeURIComponent(`Re: ${t.subject}`)}&body=${encodeURIComponent(reply)}`} title="Reply by email" aria-label="Reply by email"><Mail size={17} /></a>}{!contact.phone && !contact.email && <span className="muted">No contact details</span>}</div></td></tr>; }) : <tr><td colSpan={6}>No customer tickets yet.</td></tr>}</tbody></table></div></section>;
   if (active === "Manage Users") {
     const visibleProfiles = profiles.filter(profile => `${profile.full_name || ""} ${profile.identifier_code || ""} ${profile.phone || ""} ${profile.email || ""}`.toLowerCase().includes(userSearch.toLowerCase()));
@@ -523,7 +843,42 @@ function AdminWorkspace({ active, tickets, shipments, profiles, payments, invoic
       </table></div>
     </section>;
   }
-  if (active === "Shipments") return <section className="portal-card"><div className="card-title"><div><h2>Shipments</h2><p className="muted">Add the received package weight to calculate the customer’s JMD collection amount.</p></div><button className="button button-small" onClick={() => setNewShipmentOpen(true)}>+ New shipment</button></div><div className="table-wrap"><table><thead><tr><th>Package</th><th>Weight / collection</th><th>Milestone</th><th>Route</th><th>Invoice</th><th>Customer alerts</th><th>Action</th></tr></thead><tbody>{shipments.length ? shipments.map(shipment => { const selectedStatus = statusById[shipment.id] || shipment.status; const canNotify = selectedStatus === "received_at_miami" || selectedStatus === "ready_for_pickup"; const amountValue = savedAmounts[shipment.id] ?? shipment.collection_amount_jmd; const amount = Number(amountValue || 0).toLocaleString("en-JM"); const firstName = shipment.customer_name?.split(" ")[0] || "there"; const message = selectedStatus === "received_at_miami" ? `Hi ${firstName}, your JetSpeed package ${shipment.tracking_number} has arrived at our Miami warehouse and is being prepared for shipment to Jamaica. We will update you as it moves through our network.` : `Hi ${firstName}, your JetSpeed package ${shipment.tracking_number} is ready for pickup/delivery. The expected collection amount is JMD $${amount}. Please contact us if you need delivery assistance.`; const emailSubject = selectedStatus === "received_at_miami" ? `JetSpeed package ${shipment.tracking_number} arrived at our warehouse` : `JetSpeed package ${shipment.tracking_number} is ready`; return <tr key={shipment.id}><td><b>{shipment.tracking_number}</b></td><td><input className="weight-input" type="number" min="0.1" step="0.1" value={weightById[shipment.id] ?? shipment.weight_lb ?? ""} onChange={event => setWeightById(current => ({ ...current, [shipment.id]: event.target.value }))} placeholder="lb" />{amountValue ? <small className="collection-amount">JMD ${amount}</small> : <small className="muted">Add weight</small>}</td><td><select value={selectedStatus} onChange={event => setStatusById(current => ({ ...current, [shipment.id]: event.target.value }))}><option value="label_created">Label created</option><option value="received_at_miami">Received at Miami hub</option><option value="in_transit">In transit</option><option value="ready_for_pickup">Ready for pickup/Delivery</option></select></td><td>{shipment.origin} → {shipment.destination}</td><td><span className="invoice-status"><FileText size={15} /> Invoice <i className={shipment.invoice_uploaded ? "pulse-dot uploaded" : "pulse-dot missing"} /></span></td><td>{canNotify ? <div className="notification-actions"><a className="icon-action whatsapp" href={`https://wa.me/${String(shipment.customer_phone || "").replace(/\D/g, "")}?text=${encodeURIComponent(message)}`} target="_blank" rel="noreferrer" title="Send WhatsApp template" aria-label="Send WhatsApp template"><MessageCircle size={17} /></a><button className="icon-action email" type="button" onClick={async () => { try { await sendWarehousePackageEmail(shipment.id); } catch (error) { window.alert(error instanceof Error ? error.message : "Unable to send warehouse email."); } }} title="Send branded warehouse email" aria-label="Send branded warehouse email"><Mail size={17} /></button></div> : <span className="muted">Available at warehouse or ready stage</span>}</td><td><div className="shipment-actions"><button className="button button-small" onClick={() => { saveWeight(shipment); saveMilestone(shipment); }}>Save package</button><button className="icon-action danger" type="button" onClick={async () => { if (!window.confirm(`Delete shipment ${shipment.tracking_number}? This cannot be undone.`)) return; const result = await deletePackage(shipment.id); if (result.error) window.alert(result.error.message); else onShipmentDeleted(shipment.id); }} title="Delete shipment" aria-label="Delete shipment"><Trash2 size={16} /></button></div></td></tr>; }) : <tr><td colSpan={7}>No shipments found.</td></tr>}</tbody></table></div>{newShipmentOpen && <NewShipmentModal profiles={profiles} onClose={() => setNewShipmentOpen(false)} onCreated={shipment => { onShipmentCreated(shipment); setNewShipmentOpen(false); }} />}</section>;
+  if (active === "Shipments") return <section className="portal-card">
+    <div className="card-title"><div><h2>Shipments</h2><p className="muted">Record package weight and review the backend-calculated amount due.</p></div><button className="button button-small" onClick={() => setNewShipmentOpen(true)}>+ New shipment</button></div>
+    <div className="table-wrap"><table><thead><tr><th>Package</th><th>Weight / pricing</th><th>Milestone</th><th>Route</th><th>Invoice</th><th>Customer alerts</th><th>Action</th></tr></thead>
+      <tbody>{shipments.length ? shipments.map(shipment => {
+        const selectedStatus = statusById[shipment.id] || shipment.status;
+        const canNotify = selectedStatus === "received_at_miami" || selectedStatus === "ready_for_pickup";
+        const amountValue = shipment.collection_amount_jmd;
+        const amount = Number(amountValue || 0).toLocaleString("en-JM");
+        const pricing = shipment.pricing_breakdown;
+        const firstName = shipment.customer_name?.split(" ")[0] || "there";
+        const message = selectedStatus === "received_at_miami"
+          ? `Hi ${firstName}, your JetSpeed package ${shipment.tracking_number} has arrived at our Miami warehouse and is being prepared for shipment to Jamaica. We will update you as it moves through our network.`
+          : `Hi ${firstName}, your JetSpeed package ${shipment.tracking_number} is ready for pickup/delivery. The expected collection amount is JMD $${amount}. Please contact us if you need delivery assistance.`;
+        return <tr key={shipment.id}>
+          <td><b>{shipment.tracking_number}</b></td>
+          <td>
+            <input className="weight-input" type="number" min="0.1" step="0.1" value={weightById[shipment.id] ?? shipment.weight_lb ?? ""} onChange={event => setWeightById(current => ({ ...current, [shipment.id]: event.target.value }))} placeholder="lb" />
+            {pricing ? <div className="package-price-breakdown">
+              <small>Normal shipping: JMD ${Number(pricing.normal_shipping_charge_jmd).toLocaleString("en-JM")}</small>
+              <small>Referral discount: -JMD ${Number(pricing.referral_discount_jmd).toLocaleString("en-JM")}{pricing.referral_code ? ` · ${pricing.referrer_name || "Referrer"} (${pricing.referral_code})` : ""}</small>
+              <small>Local delivery: {pricing.local_delivery_free ? "FREE" : "Standard charges may apply"}</small>
+              <strong>Total due: JMD ${amount}</strong>
+            </div> : amountValue !== null && amountValue !== undefined ? <small className="collection-amount">JMD ${amount}</small> : <small className="muted">Add weight</small>}
+          </td>
+          <td><select value={selectedStatus} onChange={event => setStatusById(current => ({ ...current, [shipment.id]: event.target.value }))}><option value="label_created">Label created</option><option value="received_at_miami">Received at Miami hub</option><option value="in_transit">In transit</option><option value="ready_for_pickup">Ready for pickup/Delivery</option></select></td>
+          <td>{shipment.origin} → {shipment.destination}</td>
+          <td><span className="invoice-status"><FileText size={15} /> Invoice <i className={shipment.invoice_uploaded ? "pulse-dot uploaded" : "pulse-dot missing"} /></span></td>
+          <td>{canNotify ? <div className="notification-actions">
+            <a className="icon-action whatsapp" href={`https://wa.me/${String(shipment.customer_phone || "").replace(/\D/g, "")}?text=${encodeURIComponent(message)}`} target="_blank" rel="noreferrer" title="Send WhatsApp template" aria-label="Send WhatsApp template"><MessageCircle size={17} /></a>
+            {selectedStatus === "received_at_miami" && <button className="icon-action email" type="button" onClick={async () => { try { await sendWarehousePackageEmail(shipment.id); } catch (error) { window.alert(error instanceof Error ? error.message : "Unable to send warehouse email."); } }} title="Send warehouse arrival email" aria-label="Send warehouse arrival email"><Mail size={17} /></button>}
+          </div> : <span className="muted">Available at warehouse or ready stage</span>}</td>
+          <td><div className="shipment-actions"><button className="button button-small" disabled={!!savingPackageById[shipment.id]} onClick={() => void savePackage(shipment)}>{savingPackageById[shipment.id] ? "Saving..." : "Save package"}</button><button className="icon-action danger" type="button" onClick={async () => { if (!window.confirm(`Delete shipment ${shipment.tracking_number}? This cannot be undone.`)) return; const result = await deletePackage(shipment.id); if (result.error) window.alert(result.error.message); else onShipmentDeleted(shipment.id); }} title="Delete shipment" aria-label="Delete shipment"><Trash2 size={16} /></button></div></td>
+        </tr>;
+      }) : <tr><td colSpan={7}>No shipments found.</td></tr>}</tbody></table></div>
+    {newShipmentOpen && <NewShipmentModal profiles={profiles} onClose={() => setNewShipmentOpen(false)} onCreated={shipment => { onShipmentCreated(shipment); setNewShipmentOpen(false); }} />}
+  </section>;
   const descriptions: Record<string, string> = { "Manage Users": "Manage customer accounts, roles, and access.", Shipments: "Monitor and update every shipment in the network.", Invoices: "Review uploaded invoices and verification status.", Payments: "Reconcile payment activity and outstanding balances.", Reports: "Build operational and financial reports.", Services: "Configure freight and delivery services.", Settings: "Configure portal defaults and administrator preferences.", "System Logs": "Review security and operational events." };
   return active === "Settings" ? <AdminSettings userId={userId} /> : <section className="portal-card"><div className="card-title"><div><h2>{active}</h2><p className="muted">{descriptions[active]}</p></div></div><div className="empty-state"><h3>No records available</h3><p className="muted">This workspace is connected to live Supabase data and will display records when they are created.</p></div></section>;
 }
@@ -555,10 +910,25 @@ function PaymentWorkspace({ shipments, payments, userId }: { shipments: any[]; p
   return <section className="portal-card"><div className="card-title"><div><h2>Payments</h2><p className="muted">Record collection payments against live packages.</p></div><button className="button button-small" onClick={() => setOpen(true)}>+ New payment</button></div>{message && <div className="notice">{message}</div>}<div className="table-wrap"><table><thead><tr><th>Package</th><th>Amount</th><th>Type</th><th>Status</th><th>Created</th><th>Action</th></tr></thead><tbody>{localPayments.length ? localPayments.map(payment => <tr key={payment.id}><td>{shipments.find(shipment => shipment.id === payment.package_id)?.tracking_number || "—"}</td><td>JMD ${Number(payment.amount || 0).toLocaleString("en-JM")}</td><td>{payment.payment_type || "—"}</td><td><span className="status">{payment.status}</span></td><td>{new Date(payment.created_at).toLocaleString()}</td><td><button className="icon-action danger" onClick={async () => { if (!window.confirm("Delete this payment record?")) return; const result = await deletePayment(payment.id); if (result.error) window.alert(result.error.message); else setLocalPayments(localPayments.filter(item => item.id !== payment.id)); }} aria-label="Delete payment" title="Delete payment"><Trash2 size={16} /></button></td></tr>) : <tr><td colSpan={6}>No payment records are available.</td></tr>}</tbody></table></div>{open && <div className="modal-backdrop" onMouseDown={() => setOpen(false)}><div className="payment-modal" onMouseDown={event => event.stopPropagation()}><button className="modal-close" onClick={() => setOpen(false)}><X /></button><h2>Record payment</h2><p className="muted">The customer is linked automatically from the selected package.</p><form onSubmit={save}><label>Package<select value={packageId} onChange={event => setPackageId(event.target.value)}><option value="">Select package</option>{shipments.map(shipment => <option key={shipment.id} value={shipment.id}>{shipment.tracking_number} · {shipment.customer_name || shipment.profiles?.full_name || "Customer profile"}</option>)}</select></label><label>Linked customer<input value={selected ? selectedCustomer : "Select a package first"} readOnly /></label><label>Status<input value="Paid" readOnly /></label><label>Payment type<select value={paymentType} onChange={event => setPaymentType(event.target.value as "cash" | "card")}><option value="cash">Cash</option><option value="card">Card</option></select></label><label>Amount (JMD)<input value={selected?.collection_amount_jmd ? `JMD $${Number(selected.collection_amount_jmd).toLocaleString("en-JM")}` : "Weight not recorded"} readOnly /></label><button className="button full" type="submit" disabled={!selected}>Save payment</button></form></div></div>}</section>;
 }
 function AdminSettings({ userId }: { userId: string }) {
-  const [settings, setSettings] = useState({ company_name: "JetSpeed Couriers", support_email: "info@jetspeedcouriers.com", support_phone: "+1 876 336 4724", whatsapp_phone: "+1 876 336 4724", warehouse_line1: "2033 W McNab Rd, Suite S", warehouse_city: "Pompano Beach", warehouse_state: "Florida", warehouse_zip: "33069", air_first_pound: "750", air_second_pound: "1155", air_third_pound: "1754", air_additional_pound: "520.2", sea_first_pound: "560", sea_second_pound: "862", sea_third_pound: "1309", sea_additional_pound: "386.8", announcement: "" });
+  const [settings, setSettings] = useState({ company_name: "JetSpeed Couriers", support_email: "info@jetspeedcouriers.com", support_phone: "+1 876 336 4724", whatsapp_phone: "+1 876 336 4724", warehouse_line1: "2033 W McNab Rd, Suite S", warehouse_city: "Pompano Beach", warehouse_state: "Florida", warehouse_zip: "33069", air_first_pound: "", air_second_pound: "", air_third_pound: "", air_additional_pound: "", sea_first_pound: "", sea_second_pound: "", sea_third_pound: "", sea_additional_pound: "", announcement: "" });
   const [message, setMessage] = useState("");
   useEffect(() => { listSiteSettings().then(({ data }) => { (data || []).forEach((item: any) => { if (item.key in settings) setSettings(current => ({ ...current, [item.key]: String(item.value?.value ?? item.value ?? "") })); }); }).catch(() => undefined); }, []);
-  const save = async (event: FormEvent) => { event.preventDefault(); for (const [key, value] of Object.entries(settings)) { const result = await saveSiteSetting(key, value, userId); if (result.error) { setMessage(result.error.message); return; } } setMessage("Live site settings saved."); };
+  const save = async (event: FormEvent) => {
+    event.preventDefault();
+    const rateKeys = ["air_first_pound", "air_second_pound", "air_third_pound", "air_additional_pound", "sea_first_pound", "sea_second_pound", "sea_third_pound", "sea_additional_pound"];
+    if (rateKeys.some(key => {
+      const value = settings[key as keyof typeof settings];
+      return !value.trim() || !Number.isFinite(Number(value)) || Number(value) < 0;
+    })) {
+      setMessage("Enter valid non-negative values for all shipping rates.");
+      return;
+    }
+    for (const [key, value] of Object.entries(settings)) {
+      const result = await saveSiteSetting(key, rateKeys.includes(key) ? Number(value) : value, userId);
+      if (result.error) { setMessage(result.error.message); return; }
+    }
+    setMessage("Live site settings saved.");
+  };
   return <section className="portal-card"><h2>Site Settings</h2><p className="muted">These settings are stored in Supabase for use by the live site.</p><form className="form-grid" onSubmit={save}>{Object.entries(settings).map(([key, value]) => <label key={key}>{key.replace("_", " ")}<input value={value} onChange={event => setSettings(current => ({ ...current, [key]: event.target.value }))} /></label>)}<button className="button" type="submit">Save live settings</button></form>{message && <div className="notice"><CheckCircle2 size={17} />{message}</div>}</section>;
 }
 function Stat({ icon, value, label, accent, green }: { icon: ReactNode; value: string; label: string; accent?: boolean; green?: boolean }) { return <div className="stat"><div className={"stat-icon " + (accent ? "blue" : green ? "green" : "")}>{icon}</div><div><strong>{value}</strong><span>{label}</span></div></div>; }
@@ -569,26 +939,109 @@ function ShippingCalculator() {
   const [category, setCategory] = useState("Apparel");
   const [value, setValue] = useState("");
   const [weight, setWeight] = useState("");
-  const [result, setResult] = useState<number | null>(null); const [rates, setRates] = useState(defaultRates);
-  useEffect(() => { listSiteSettings().then(({ data }) => { const values = Object.fromEntries((data ?? []).map((item: any) => [item.key, Number(item.value)])); setRates(current => ({ ...current, ...Object.fromEntries(Object.keys(current).map(key => [key, Number.isFinite(values[key]) ? values[key] : current[key as keyof RateSettings]])) } as RateSettings)); }).catch(() => undefined); }, []);
+  const [result, setResult] = useState<number | null>(null); const [rates, setRates] = useState<RateSettings | null>(null);
+  useEffect(() => { loadRateSettings().then(setRates).catch(() => setRates(null)); }, []);
   const categoryRates: Record<string, number> = { Apparel: 0, Electronics: 0.08, Shoes: 0.03, "Beauty & personal care": 0.05, "Household goods": 0.02, "Commercial goods": 0.06 };
   const calculate = (event: FormEvent) => {
     event.preventDefault();
     const declaredValue = Number(value);
     const pounds = Number(weight);
     if (!Number.isFinite(declaredValue) || declaredValue < 0 || !Number.isFinite(pounds) || pounds <= 0) { setResult(null); return; }
+    if (!rates) { setResult(null); return; }
     const collectionAmount = rateForPounds(pounds, freight, rates);
     setResult(collectionAmount);
   };
-  return <section className="calculator-section container"><div className="calculator-copy"><p className="eyebrow orange">PLAN YOUR SHIPMENT</p><h2>Estimate your collection cost.</h2><p>Choose your freight type, tell us what you're sending, and estimate the JMD amount due when you collect.</p></div><form className="calculator-card" onSubmit={calculate}><div className="calculator-row"><label>Freight type<select value={freight} onChange={e => setFreight(e.target.value as "air" | "sea")}><option value="air">Air freight · faster</option><option value="sea">Sea freight · economical</option></select></label><label>Category<select value={category} onChange={e => setCategory(e.target.value)}>{Object.keys(categoryRates).map(item => <option key={item}>{item}</option>)}</select></label></div><div className="calculator-row"><label>Item value (USD)<input type="number" min="0" step="0.01" value={value} onChange={e => setValue(e.target.value)} placeholder="e.g. 150" required /></label><label>Estimated weight (lb)<input type="number" min="0.1" step="0.1" value={weight} onChange={e => setWeight(e.target.value)} placeholder="e.g. 5" required /></label></div><button className="button" type="submit">Calculate estimate <ArrowRight size={16} /></button>{result !== null && <div className="calculator-result"><span>Estimated collection amount</span><strong>JMD ${result.toLocaleString("en-JM")}</strong><small>{freight === "air" ? "Air freight" : "Sea freight"} · {weight} lb · {category}</small></div>}</form></section>;
+  return <section className="calculator-section container"><div className="calculator-copy"><p className="eyebrow orange">PLAN YOUR SHIPMENT</p><h2>Estimate your collection cost.</h2><p>Choose your freight type, tell us what you're sending, and estimate the JMD amount due when you collect.</p></div><form className="calculator-card" onSubmit={calculate}><div className="calculator-row"><label>Freight type<select value={freight} onChange={e => setFreight(e.target.value as "air" | "sea")}><option value="air">Air freight · faster</option><option value="sea">Sea freight · economical</option></select></label><label>Category<select value={category} onChange={e => setCategory(e.target.value)}>{Object.keys(categoryRates).map(item => <option key={item}>{item}</option>)}</select></label></div><div className="calculator-row"><label>Item value (USD)<input type="number" min="0" step="0.01" value={value} onChange={e => setValue(e.target.value)} placeholder="e.g. 150" required /></label><label>Estimated weight (lb)<input type="number" min="0.1" step="0.1" value={weight} onChange={e => setWeight(e.target.value)} placeholder="e.g. 5" required /></label></div><button className="button" type="submit" disabled={!rates}>{rates ? "Calculate estimate" : "Live rates unavailable"} <ArrowRight size={16} /></button>{result !== null && <div className="calculator-result"><span>Estimated collection amount</span><strong>JMD ${result.toLocaleString("en-JM")}</strong><small>{freight === "air" ? "Air freight" : "Sea freight"} · {weight} lb · {category}</small></div>}</form></section>;
 }
 function Footer({ go, staffRole, contact }: { go: (v: View) => void; staffRole: "admin" | "support" | null; contact: ContactSettings }) { return <footer><div className="footer-main container"><div><Logo /><p>Your world. Delivered faster.<br />Reliable shipping from the USA to Jamaica.</p></div><div><h4>Support</h4><button onClick={() => go("help")}>Help center</button><button onClick={() => go("terms")}>Terms & conditions</button><button onClick={() => go("privacy")}>Privacy policy</button></div><div><h4>Contact us</h4><p><a href={`tel:${contact.support_phone.replace(/\D/g, "")}`}>{contact.support_phone}</a><br /><a href={`mailto:${contact.support_email}`}>{contact.support_email}</a></p>{staffRole && <button className="text-button" onClick={() => go("admin")}>{staffRole === "support" ? "Support portal →" : "Admin portal →"}</button>}</div></div><div className="footer-bottom container">© {new Date().getFullYear()} JetSpeed Couriers. All rights reserved.</div></footer>; }
 function AuthModal({ type, onClose, onSuccess }: { type: "login" | "signup"; onClose: () => void; onSuccess: (email: string) => void }) {
   const [mode, setMode] = useState<"login" | "signup">(type);
   const login = mode === "login";
-  const [email, setEmail] = useState(""); const [password, setPassword] = useState(""); const [name, setName] = useState(""); const [whatsapp, setWhatsapp] = useState(""); const [error, setError] = useState("");
-  const submit = async () => { if (!supabaseConfigured) { setError("Authentication is disabled until Supabase is configured."); return; } const result = login ? await signIn(email.trim(), password) : await signUp(email.trim(), password, name.trim(), whatsapp.trim() || undefined); if (result.error) setError(result.error.message); else onSuccess(email.trim()); };
-  return <div className="modal-backdrop" onMouseDown={onClose}><div className="auth-modal" onMouseDown={e => e.stopPropagation()}><button className="modal-close" onClick={onClose}><X /></button><div className="auth-brand"><Logo /><p>{login ? "Welcome back to effortless shipping." : "Your world is waiting."}</p></div><div className="auth-form"><div className="auth-tabs"><button className={login ? "active" : ""} onClick={() => setMode("login")}>Login</button><button className={!login ? "active" : ""} onClick={() => setMode("signup")}>Sign up</button></div><h2>{login ? "Welcome back" : "Get your US address"}</h2><p className="muted">{login ? "Sign in to manage your shipments." : "Create your account and start shipping."}</p>{!login && <><label>Full name<input value={name} onChange={e => setName(e.target.value)} placeholder="Your full name" /></label><label>WhatsApp number <span className="muted">(optional)</span><input type="tel" value={whatsapp} onChange={e => setWhatsapp(e.target.value)} placeholder="+1 876 555 0123" /></label></>}<label>Email address<input type="email" value={email} onChange={event => setEmail(event.target.value)} placeholder="you@example.com" /></label><label>Password<input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" /></label>{error && <p className="form-error">{error}</p>}<button className="button full" disabled={!email.trim() || !password} onClick={submit}>{!supabaseConfigured ? "Configure Supabase to continue" : login ? "Login" : "Get my US address"} <ArrowRight size={16} /></button><p className="auth-foot">{login ? "Don't have an account? " : "Already have an account? "}<button onClick={() => setMode(login ? "signup" : "login")}>{login ? "Sign up" : "Login"}</button></p></div></div></div>;
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [addressLine1, setAddressLine1] = useState("");
+  const [addressLine2, setAddressLine2] = useState("");
+  const [cityTown, setCityTown] = useState("");
+  const [parish, setParish] = useState("");
+  const [mobile, setMobile] = useState("");
+  const [trn, setTrn] = useState("");
+  const [referralCode, setReferralCode] = useState("");
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const submit = async () => {
+    setError("");
+    if (!supabaseConfigured) { setError("Authentication is disabled until Supabase is configured."); return; }
+    if (!login) {
+      const normalizedMobile = mobile.replace(/\D/g, "");
+      if (!firstName.trim() || !lastName.trim() || !addressLine1.trim() || !cityTown.trim() || !parish || !email.trim() || !trn.trim()) {
+        setError("Complete all required registration fields.");
+        return;
+      }
+      if (!/^(876|658)\d{7}$/.test(normalizedMobile)) {
+        setError("Enter a valid Jamaican 10-digit mobile number starting with 876 or 658.");
+        return;
+      }
+      if (!/^\d{9}$/.test(trn.trim())) {
+        setError("TRN must contain exactly 9 digits.");
+        return;
+      }
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+        setError("Enter a valid email address.");
+        return;
+      }
+      if (password.length < 8) {
+        setError("Password must contain at least 8 characters.");
+        return;
+      }
+      if (password !== confirmPassword) {
+        setError("Passwords do not match.");
+        return;
+      }
+    }
+    setSaving(true);
+    try {
+      if (!login && referralCode.trim()) {
+        const validation = await validateReferralCode(referralCode);
+        if (!validation.valid) {
+          setError("That referral code is not valid. Check the code and try again.");
+          return;
+        }
+      }
+      const result = login
+        ? await signIn(email.trim(), password)
+        : await signUp(email.trim(), password, {
+          first_name: firstName.trim(),
+          last_name: lastName.trim(),
+          phone: mobile.replace(/\D/g, ""),
+          address_line1: addressLine1.trim(),
+          address_line2: addressLine2.trim() || null,
+          city_town: cityTown.trim(),
+          parish,
+          trn: trn.trim(),
+          referral_code: referralCode.trim().toUpperCase() || null,
+        });
+      if (result.error) setError(result.error.message);
+      else onSuccess(email.trim());
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : "Unable to submit your account details.");
+    } finally {
+      setSaving(false);
+    }
+  };
+  return <div className="modal-backdrop" onMouseDown={onClose}><div className="auth-modal" onMouseDown={e => e.stopPropagation()}><button className="modal-close" onClick={onClose} aria-label="Close sign in"><X /></button><div className="auth-brand"><Logo /><p>{login ? "Welcome back to effortless shipping." : "Your world is waiting."}</p></div><div className="auth-form"><div className="auth-tabs"><button className={login ? "active" : ""} type="button" onClick={() => { setError(""); setMode("login"); }}>Login</button><button className={!login ? "active" : ""} type="button" onClick={() => { setError(""); setMode("signup"); }}>Sign up</button></div><h2>{login ? "Welcome back" : "Get your US address"}</h2><p className="muted">{login ? "Sign in to manage your shipments." : "Create your account and start shipping."}</p>{!login && <div className="form-grid signup-fields">
+    <label>First name<input value={firstName} onChange={event => setFirstName(event.target.value)} autoComplete="given-name" required /></label>
+    <label>Last name<input value={lastName} onChange={event => setLastName(event.target.value)} autoComplete="family-name" required /></label>
+    <label className="signup-wide">Address line 1<input value={addressLine1} onChange={event => setAddressLine1(event.target.value)} autoComplete="address-line1" required /></label>
+    <label className="signup-wide">Address line 2 <span className="muted">(optional)</span><input value={addressLine2} onChange={event => setAddressLine2(event.target.value)} autoComplete="address-line2" /></label>
+    <label>City / Town<input value={cityTown} onChange={event => setCityTown(event.target.value)} autoComplete="address-level2" required /></label>
+    <label>Parish<select value={parish} onChange={event => setParish(event.target.value)} required><option value="">Select parish</option>{jamaicanParishes.map(item => <option key={item} value={item}>{item}</option>)}</select></label>
+    <label className="signup-wide">Mobile number<input type="tel" value={mobile} onChange={event => setMobile(event.target.value)} autoComplete="tel" placeholder="8765550123" required /></label>
+    <label className="signup-wide">TRN<input value={trn} onChange={event => setTrn(event.target.value.replace(/\D/g, "").slice(0, 9))} inputMode="numeric" autoComplete="off" maxLength={9} required /></label>
+    <label className="signup-wide">Reward / Referral Code <span className="muted">(optional)</span><input value={referralCode} onChange={event => setReferralCode(event.target.value.toUpperCase())} placeholder="Enter code if you have one" autoComplete="off" /><small className="muted">Have a referral code? Enter it here to receive your JetSpeed referral benefits.</small></label>
+  </div>}<label>Email address<input type="email" value={email} onChange={event => setEmail(event.target.value)} autoComplete="email" placeholder="you@example.com" required /></label><label>Password<input type="password" value={password} onChange={event => setPassword(event.target.value)} autoComplete={login ? "current-password" : "new-password"} placeholder="••••••••" minLength={login ? undefined : 8} required /></label>{!login && <label>Confirm password<input type="password" value={confirmPassword} onChange={event => setConfirmPassword(event.target.value)} autoComplete="new-password" minLength={8} required /></label>}{error && <p className="form-error">{error}</p>}<button className="button full" disabled={saving || !email.trim() || !password} onClick={() => void submit()}>{saving ? "Please wait..." : !supabaseConfigured ? "Configure Supabase to continue" : login ? "Login" : "Create account"} <ArrowRight size={16} /></button><p className="auth-foot">{login ? "Don't have an account? " : "Already have an account? "}<button type="button" onClick={() => { setError(""); setMode(login ? "signup" : "login"); }}>{login ? "Sign up" : "Login"}</button></p></div></div></div>;
 }
 
 let announcementShownThisSession = false;
