@@ -12,6 +12,39 @@ import { addReferralDeliveryArea, getReferralManagement, getReferralSummary, Ref
 
 type View = "home" | "services" | "rates" | "track" | "about" | "contact" | "help" | "terms" | "privacy" |
   "customer" | "admin";
+const viewPaths: Record<View, string> = {
+  home: "/",
+  services: "/services",
+  rates: "/rates",
+  track: "/track",
+  about: "/about",
+  contact: "/contact",
+  help: "/help",
+  terms: "/terms",
+  privacy: "/privacy",
+  customer: "/customer",
+  admin: "/admin",
+};
+const views = Object.keys(viewPaths) as View[];
+function announcementUrl(url: string) {
+  const legacyView = url.startsWith("#") ? views.find(view => view === url.slice(1)) : undefined;
+  return legacyView ? viewPaths[legacyView] : url;
+}
+function getViewFromLocation(): View {
+  const pathname = window.location.pathname.replace(/\/+$/, "") || "/";
+  const legacyHashView = pathname === "/" ? views.find(view => view === window.location.hash.slice(1)) : undefined;
+  return legacyHashView ?? views.find(view => viewPaths[view] === pathname) ?? "home";
+}
+function normalizeLocation() {
+  const pathname = window.location.pathname.replace(/\/+$/, "") || "/";
+  const legacyHashView = pathname === "/" ? views.find(view => view === window.location.hash.slice(1)) : undefined;
+  const view = legacyHashView ?? views.find(candidate => viewPaths[candidate] === pathname);
+  if (!view) return;
+  const path = viewPaths[view];
+  if (pathname !== path || legacyHashView) {
+    window.history.replaceState(null, "", `${path}${window.location.search}`);
+  }
+}
 type Modal = "login" | "signup" | null;
 type ContactSettings = { support_phone: string; support_email: string; whatsapp_phone: string };
 type RateSettings = { air_first_pound: number; air_second_pound: number; air_third_pound: number; air_additional_pound: number; sea_first_pound: number; sea_second_pound: number; sea_third_pound: number; sea_additional_pound: number };
@@ -33,13 +66,13 @@ const photos = {
 };
 
 function Logo({ compact = false }: { compact?: boolean }) {
-  return <a className={"logo " + (compact ? "logo-compact" : "")} href="#home" aria-label="JetSpeed Couriers home">
+  return <a className={"logo " + (compact ? "logo-compact" : "")} href="/" aria-label="JetSpeed Couriers home">
     <img className="logo-image" src="/brand/jetspeed-logo.png" alt="JetSpeed Couriers" />
   </a>;
 }
 
 export function App() {
-  const [view, setView] = useState<View>("home");
+  const [view, setView] = useState<View>(getViewFromLocation);
   const [modal, setModal] = useState<Modal>(null);
   const [openInvoicePage, setOpenInvoicePage] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -57,9 +90,9 @@ export function App() {
     localStorage.setItem("jetspeed-theme", darkMode ? "dark" : "light");
   }, [darkMode]);
   useEffect(() => {
-    const change = () => setView((location.hash.slice(1) as View) || "home");
-    window.addEventListener("hashchange", change); change();
-    return () => window.removeEventListener("hashchange", change);
+    const change = () => { normalizeLocation(); setView(getViewFromLocation()); };
+    window.addEventListener("popstate", change); change();
+    return () => window.removeEventListener("popstate", change);
   }, []);
   useEffect(() => {
     listSiteSettings().then(({ data }) => {
@@ -74,7 +107,15 @@ export function App() {
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => applySession(session));
     return () => listener.subscription.unsubscribe();
   }, []);
-  const go = (next: View) => { setMenuOpen(false); location.hash = next; window.scrollTo(0, 0); };
+  const go = (next: View) => {
+    setMenuOpen(false);
+    const path = viewPaths[next];
+    if (window.location.pathname !== path || window.location.search || window.location.hash) {
+      window.history.pushState(null, "", path);
+    }
+    setView(next);
+    window.scrollTo(0, 0);
+  };
   const openInvoiceUpload = () => {
     setOpenInvoicePage(true);
     if (userId) go("customer");
@@ -1054,12 +1095,12 @@ const announcementTemplates = [
   ["service_update", "invoice_reminder", "Invoice reminder"],
 ] as const;
 const announcementPresets: Record<string, Partial<Announcement>> = {
-  service_update: { title: "Important service update", body: "We have an important update to our shipping services. Please review the latest details before placing your next order.", category: "service_update", template: "service_update", animation: "fade", cta_label: "Learn more", cta_url: "#services" },
-  promotion: { title: "Limited-time shipping special", body: "Save on your next shipment with JetSpeed Couriers. This offer is available for a limited time.", category: "promotion", template: "promotion", animation: "slide", cta_label: "View rates", cta_url: "#rates" },
-  holiday: { title: "Holiday shipping reminder", body: "Plan ahead for holiday shipping. Send your packages early to help us move them through the warehouse and into Jamaica on time.", category: "holiday", template: "promotion", animation: "fade", cta_label: "View rates", cta_url: "#rates" },
-  maintenance: { title: "Scheduled service maintenance", body: "Some online services may be temporarily unavailable while we complete scheduled maintenance. We appreciate your patience.", category: "maintenance", template: "maintenance", animation: "fade", cta_label: "Contact us", cta_url: "#contact" },
-  shipping_tip: { title: "Shipping tip", body: "Remember to include your JSC mailbox code on Address Line 2 every time you place an order.", category: "shipping_tip", template: "shipping_tip", animation: "fade", cta_label: "Learn more", cta_url: "#help" },
-  invoice_reminder: { title: "Did you remember to upload your invoice?", body: "You can upload anytime on your JetSpeed dashboard, or use the upload link in the email sent when your package reaches our warehouse.\n\nPlease upload before Customs clearance.\nWe normally send another reminder when your package arrives in Jamaica—uploading early helps avoid delays.", category: "service_update", template: "invoice_reminder", animation: "slide", cta_label: "Sign in & Upload Invoice", cta_url: "#customer" },
+  service_update: { title: "Important service update", body: "We have an important update to our shipping services. Please review the latest details before placing your next order.", category: "service_update", template: "service_update", animation: "fade", cta_label: "Learn more", cta_url: "/services" },
+  promotion: { title: "Limited-time shipping special", body: "Save on your next shipment with JetSpeed Couriers. This offer is available for a limited time.", category: "promotion", template: "promotion", animation: "slide", cta_label: "View rates", cta_url: "/rates" },
+  holiday: { title: "Holiday shipping reminder", body: "Plan ahead for holiday shipping. Send your packages early to help us move them through the warehouse and into Jamaica on time.", category: "holiday", template: "promotion", animation: "fade", cta_label: "View rates", cta_url: "/rates" },
+  maintenance: { title: "Scheduled service maintenance", body: "Some online services may be temporarily unavailable while we complete scheduled maintenance. We appreciate your patience.", category: "maintenance", template: "maintenance", animation: "fade", cta_label: "Contact us", cta_url: "/contact" },
+  shipping_tip: { title: "Shipping tip", body: "Remember to include your JSC mailbox code on Address Line 2 every time you place an order.", category: "shipping_tip", template: "shipping_tip", animation: "fade", cta_label: "Learn more", cta_url: "/help" },
+  invoice_reminder: { title: "Did you remember to upload your invoice?", body: "You can upload anytime on your JetSpeed dashboard, or use the upload link in the email sent when your package reaches our warehouse.\n\nPlease upload before Customs clearance.\nWe normally send another reminder when your package arrives in Jamaica—uploading early helps avoid delays.", category: "service_update", template: "invoice_reminder", animation: "slide", cta_label: "Sign in & Upload Invoice", cta_url: "/customer" },
 };
 function AnnouncementPopup({ onNavigate, onUploadInvoice }: { onNavigate: (view: View) => void; onUploadInvoice: () => void }) {
   const [announcement, setAnnouncement] = useState<Announcement | null>(null);
@@ -1094,8 +1135,8 @@ function AnnouncementPopup({ onNavigate, onUploadInvoice }: { onNavigate: (view:
     {seconds !== null && <small className="announcement-countdown">Offer ends in {Math.floor(seconds / 86400)}d {Math.floor(seconds / 3600) % 24}h {Math.floor(seconds / 60) % 60}m</small>}
     {announcement.template === "invoice_reminder" && announcement.cta_label
       ? <button className="button button-small announcement-invoice-cta" onClick={() => { setClosed(true); onUploadInvoice(); }}>{announcement.cta_label}</button>
-      : announcement.cta_label && announcement.cta_url && <a className="button button-small" href={announcement.cta_url}>{announcement.cta_label}<ArrowRight size={14} /></a>}
-    {announcement.template === "invoice_reminder" && <a className="announcement-help-link" href="#help" onClick={event => { event.preventDefault(); setClosed(true); onNavigate("help"); }}>Why your invoice matters</a>}
+      : announcement.cta_label && announcement.cta_url && <a className="button button-small" href={announcementUrl(announcement.cta_url)}>{announcement.cta_label}<ArrowRight size={14} /></a>}
+    {announcement.template === "invoice_reminder" && <a className="announcement-help-link" href="/help" onClick={event => { event.preventDefault(); setClosed(true); onNavigate("help"); }}>Why your invoice matters</a>}
   </div>;
 }
 function AnnouncementsWorkspace() {
@@ -1123,7 +1164,7 @@ function AnnouncementsWorkspace() {
         <label>Starts<input type="datetime-local" value={String(form.starts_at || "")} onChange={event => set("starts_at", event.target.value)} /></label>
         <label>Ends<input type="datetime-local" value={String(form.ends_at || "")} onChange={event => set("ends_at", event.target.value)} /></label>
         <label>CTA label<input value={String(form.cta_label || "")} onChange={event => set("cta_label", event.target.value)} /></label>
-        <label>CTA URL<input type="text" value={String(form.cta_url || "")} onChange={event => set("cta_url", event.target.value)} placeholder="#help or https://..." /></label>
+        <label>CTA URL<input type="text" value={String(form.cta_url || "")} onChange={event => set("cta_url", event.target.value)} placeholder="/help or https://..." /></label>
       </div>
       <label>Message<textarea required maxLength={2000} rows={4} value={String(form.body || "")} onChange={event => set("body", event.target.value)} /></label>
       <label className="checkbox-label"><input type="checkbox" checked={Boolean(form.countdown)} onChange={event => set("countdown", event.target.checked)} /> Show optional countdown when an end date is set</label>
