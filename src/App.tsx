@@ -48,6 +48,18 @@ function normalizeLocation() {
 type Modal = "login" | "signup" | null;
 type ContactSettings = { support_phone: string; support_email: string; whatsapp_phone: string };
 type RateSettings = { air_first_pound: number; air_second_pound: number; air_third_pound: number; air_additional_pound: number; sea_first_pound: number; sea_second_pound: number; sea_third_pound: number; sea_additional_pound: number };
+function scheduleWhenIdle(task: () => void) {
+  const idleWindow = window as Window & {
+    requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
+    cancelIdleCallback?: (id: number) => void;
+  };
+  if (idleWindow.requestIdleCallback) {
+    const id = idleWindow.requestIdleCallback(task, { timeout: 2000 });
+    return () => idleWindow.cancelIdleCallback?.(id);
+  }
+  const id = window.setTimeout(task, 300);
+  return () => window.clearTimeout(id);
+}
 const jamaicanParishes = ["Clarendon", "Hanover", "Kingston", "Manchester", "Portland", "St. Andrew", "St. Ann", "St. Catherine", "St. Elizabeth", "St. James", "St. Mary", "St. Thomas", "Trelawny", "Westmoreland"];
 function rateForPounds(pounds: number, freight: "air" | "sea", rates: RateSettings) { const billable = Math.ceil(pounds); const prefix = freight === "air" ? "air" : "sea"; const first = rates[`${prefix}_first_pound` as keyof RateSettings] as number; const second = rates[`${prefix}_second_pound` as keyof RateSettings] as number; const third = rates[`${prefix}_third_pound` as keyof RateSettings] as number; const additional = rates[`${prefix}_additional_pound` as keyof RateSettings] as number; return billable === 1 ? first : billable === 2 ? second : Math.round(third + (billable - 3) * additional); }
 async function loadRateSettings(): Promise<RateSettings | null> {
@@ -96,16 +108,19 @@ export function App() {
     return () => window.removeEventListener("popstate", change);
   }, []);
   useEffect(() => {
-    listSiteSettings().then(({ data }) => {
-      const settings = Object.fromEntries((data ?? []).map((item: any) => [item.key, item.value]));
-      const codePrefix = String(settings.courier_code_prefix?.value ?? settings.courier_code_prefix ?? "").trim();
-      if (codePrefix) setCourierCodePrefix(codePrefix.toUpperCase());
-      setContactSettings(current => ({ support_phone: settings.support_phone || current.support_phone, support_email: settings.support_email || current.support_email, whatsapp_phone: settings.whatsapp_phone || current.whatsapp_phone }));
-    }).catch(() => undefined);
+    return scheduleWhenIdle(() => {
+      listSiteSettings().then(({ data, error }) => {
+        if (error) throw error;
+        const settings = Object.fromEntries((data ?? []).map((item: any) => [item.key, item.value]));
+        const codePrefix = String(settings.courier_code_prefix?.value ?? settings.courier_code_prefix ?? "").trim();
+        if (codePrefix) setCourierCodePrefix(codePrefix.toUpperCase());
+        setContactSettings(current => ({ support_phone: settings.support_phone || current.support_phone, support_email: settings.support_email || current.support_email, whatsapp_phone: settings.whatsapp_phone || current.whatsapp_phone }));
+      }).catch(error => console.error("Unable to load public site settings.", error));
+    });
   }, []);
   useEffect(() => {
     if (!supabase) return;
-    const applySession = (session: any) => { setUserId(session?.user.id ?? null); setSessionEmail(session?.user.email ?? ""); if (session?.user.id) getProfile(session.user.id).then(({ data }) => { if (adminEmails.includes((session.user.email ?? "").toLowerCase())) setUserRole("admin"); else if (data?.role === "admin" || data?.role === "support") setUserRole(data.role); else setUserRole("customer"); setAuthReady(true); void syncFreightForwarderAccount().catch(() => undefined); }).catch(() => { setUserRole(adminEmails.includes((session.user.email ?? "").toLowerCase()) ? "admin" : "customer"); setAuthReady(true); }); else { setUserRole("customer"); setAuthReady(true); } };
+    const applySession = (session: any) => { setUserId(session?.user.id ?? null); setSessionEmail(session?.user.email ?? ""); if (session?.user.id) getProfile(session.user.id).then(({ data }) => { if (adminEmails.includes((session.user.email ?? "").toLowerCase())) setUserRole("admin"); else if (data?.role === "admin" || data?.role === "support") setUserRole(data.role); else setUserRole("customer"); setAuthReady(true); }).catch(() => { setUserRole(adminEmails.includes((session.user.email ?? "").toLowerCase()) ? "admin" : "customer"); setAuthReady(true); }); else { setUserRole("customer"); setAuthReady(true); } };
     getSession().then(({ data }) => applySession(data.session));
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => applySession(session));
     return () => listener.subscription.unsubscribe();
@@ -140,8 +155,8 @@ export function App() {
 }
 
 function Home({ go, onSignup, courierCodePrefix }: { go: (v: View) => void; onSignup: () => void; courierCodePrefix: string }) {
-  const [tracking, setTracking] = useState(""); const [message, setMessage] = useState("");
-  const submit = async (e: FormEvent) => { e.preventDefault(); if (!tracking.trim()) return; try { const result = await trackPackage(tracking.trim()); setMessage(`${result.status} · ${result.destination}`); } catch (error) { setMessage(error instanceof Error ? error.message : "Unable to retrieve tracking information."); } };
+  const [tracking, setTracking] = useState(""); const [message, setMessage] = useState(""); const [trackingLoading, setTrackingLoading] = useState(false);
+  const submit = async (e: FormEvent) => { e.preventDefault(); if (!tracking.trim() || trackingLoading) return; setTrackingLoading(true); setMessage("Connecting to tracking service… it may take a moment if the service is waking up."); try { const result = await trackPackage(tracking.trim()); setMessage(`${result.status} · ${result.destination}`); } catch (error) { setMessage(error instanceof Error ? error.message : "Unable to retrieve tracking information."); } finally { setTrackingLoading(false); } };
   return <main>
     <section className="hero">
       <div className="hero-copy">
@@ -157,7 +172,7 @@ function Home({ go, onSignup, courierCodePrefix }: { go: (v: View) => void; onSi
     <section className="service-strip" aria-label="Global Xend JA services marquee"><div className="service-marquee-track"><div className="service-marquee-group"><Service icon={<Plane />} title="Air Freight" text="Fast & reliable" /><Service icon={<Ship />} title="Sea Freight" text="Cost effective" /><Service icon={<Package />} title="Package Forwarding" text="Shop worldwide" /><Service icon={<ShieldCheck />} title="Secure & Trusted" text="Your packages, our priority" /></div><div className="service-marquee-group" aria-hidden="true"><Service icon={<Plane />} title="Air Freight" text="Fast & reliable" /><Service icon={<Ship />} title="Sea Freight" text="Cost effective" /><Service icon={<Package />} title="Package Forwarding" text="Shop worldwide" /><Service icon={<ShieldCheck />} title="Secure & Trusted" text="Your packages, our priority" /></div></div></section>
     <section className="address-section container"><div className="address-intro"><p className="eyebrow orange">SHOP FROM THE USA</p><h2>Get your personal<br /><em>US address.</em></h2><p>Use your Global Xend JA address at checkout and we'll forward your purchases safely to Jamaica.</p><button className="text-button" onClick={onSignup}>Get my address <ArrowRight size={16} /></button></div><div className="address-preview landing-address"><div className="address-preview-heading"><Globe2 size={16} /><strong>Your Global Xend JA address will look like this</strong></div><div className="address-fields"><span><small>Name</small>Alex Davis</span><span><small>Address line 1</small>1234 Global Xend Way</span><span><small>Address line 2 · personal identification code</small>Apt 1 · <strong>{courierCodePrefix} 0123</strong></span><span><small>City, State ZIP</small>Fort Lauderdale, FL 33301</span></div><p>Always include your personal ID code on Line 2 so we can identify your packages.</p></div></section>
     <section className="split-section container"><div className="photo-card"><img src={photos.handoff} alt="Young Caribbean woman handing a package to a customer across a service counter" /></div><div className="section-copy"><p className="eyebrow orange">WHY GLOBAL XEND JA</p><h2>Bridging the gap between <em>you</em> and the world.</h2><p>International shipping made simple, secure and stress-free. Use your personal US address and we handle the rest.</p><ul className="check-list"><li><CheckCircle2 /> Easy package tracking</li><li><CheckCircle2 /> Multiple payment options</li><li><CheckCircle2 /> Fast local delivery</li></ul><button className="text-button" onClick={() => go("about")}>Learn more <ArrowRight size={16} /></button></div></section>
-    <section className="tracking-banner"><div className="container tracking-inner"><div><p className="eyebrow orange">REAL-TIME VISIBILITY</p><h2>Track your package</h2><p>Get updates from our warehouse to your door.</p></div><form className="tracking-form" onSubmit={submit}><input value={tracking} onChange={e => setTracking(e.target.value)} placeholder="Enter tracking number" /><button className="button">Track now <ArrowRight size={16} /></button></form>{message && <strong className="track-result">{message}</strong>}</div></section>
+    <section className="tracking-banner"><div className="container tracking-inner"><div><p className="eyebrow orange">REAL-TIME VISIBILITY</p><h2>Track your package</h2><p>Get updates from our warehouse to your door.</p></div><form className="tracking-form" onSubmit={submit}><input value={tracking} onChange={e => setTracking(e.target.value)} placeholder="Enter tracking number" /><button className="button" disabled={trackingLoading}>{trackingLoading ? "Connecting..." : <>Track now <ArrowRight size={16} /></>}</button></form>{message && <strong className="track-result">{message}</strong>}</div></section>
     <ShippingCalculator />
     <section className="container services-section"><div className="section-heading"><div><p className="eyebrow orange">WHAT WE DO</p><h2>Our <em>services</em></h2></div><button className="text-button" onClick={() => go("services")}>View all <ChevronRight size={15} /></button></div><div className="service-grid"><ServiceCard image={photos.hero} title="Online Shopping" text="Receive purchases from the USA" /><ServiceCard image={photos.cargo} title="Commercial Shipping" text="Grow your business" /><ServiceCard image={photos.sea} title="Sea Freight" text="Ship more, save more" /></div></section>
   </main>;
@@ -177,7 +192,7 @@ function PublicPage({ view, go, contact }: { view: View; go: (v: View) => void; 
   const data = content[view] || content.about;
   return <main className="page-shell"><section className="page-hero"><p className="eyebrow orange">GLOBAL XEND JA</p><h1>{data.title}</h1><p>{data.intro}</p></section>{view === "track" ? <TrackPage /> : view === "services" ? <ServicesPage go={go} /> : view === "rates" ? <RatesPage /> : view === "contact" ? <ContactPage contact={contact} /> : view === "help" ? <HelpPage /> : view === "about" ? <AboutPage /> : <LegalPage type={view} />}</main>;
 }
-function TrackPage() { const [value, setValue] = useState(""); const [result, setResult] = useState(""); const [status, setStatus] = useState(""); const submit = async (e: FormEvent) => { e.preventDefault(); try { const r = await trackPackage(value); setStatus(r.status); setResult(`${r.status} — destination: ${r.destination}`); } catch (e) { setResult(e instanceof Error ? e.message : "Tracking unavailable"); } }; const milestones = ["label_created", "received_at_miami", "in_transit", "ready_for_pickup"]; const labels: Record<string, string> = { label_created: "Label created", received_at_miami: "Received at Miami hub", in_transit: "In transit", ready_for_pickup: "Ready for pickup/Delivery" }; const current = milestones.indexOf(status); return <section className="content-card"><h2>Shipment lookup</h2><form className="inline-form" onSubmit={submit}><input required value={value} onChange={e => setValue(e.target.value)} placeholder="e.g. JS250001" /><button className="button">Search shipment <Search size={16} /></button></form>{result && <div className="notice"><CheckCircle2 size={18} /> {result}</div>}<div className="timeline"><b>Shipment milestones</b><div className="milestone-list">{milestones.map((milestone, index) => <span className={index <= current ? "milestone complete" : "milestone"} key={milestone}>{index <= current ? "✓" : "○"} {labels[milestone]}{index < milestones.length - 1 && <i>→</i>}</span>)}</div></div></section>; }
+function TrackPage() { const [value, setValue] = useState(""); const [result, setResult] = useState(""); const [status, setStatus] = useState(""); const [loading, setLoading] = useState(false); const submit = async (e: FormEvent) => { e.preventDefault(); if (loading) return; setLoading(true); setResult("Connecting to tracking service… it may take a moment if the service is waking up."); try { const r = await trackPackage(value); setStatus(r.status); setResult(`${r.status} — destination: ${r.destination}`); } catch (e) { setResult(e instanceof Error ? e.message : "Tracking unavailable"); } finally { setLoading(false); } }; const milestones = ["label_created", "received_at_miami", "in_transit", "ready_for_pickup"]; const labels: Record<string, string> = { label_created: "Label created", received_at_miami: "Received at Miami hub", in_transit: "In transit", ready_for_pickup: "Ready for pickup/Delivery" }; const current = milestones.indexOf(status); return <section className="content-card"><h2>Shipment lookup</h2><form className="inline-form" onSubmit={submit}><input required value={value} onChange={e => setValue(e.target.value)} placeholder="e.g. JS250001" /><button className="button" disabled={loading}>{loading ? "Connecting..." : <>Search shipment <Search size={16} /></>}</button></form>{result && <div className="notice"><CheckCircle2 size={18} /> {result}</div>}<div className="timeline"><b>Shipment milestones</b><div className="milestone-list">{milestones.map((milestone, index) => <span className={index <= current ? "milestone complete" : "milestone"} key={milestone}>{index <= current ? "✓" : "○"} {labels[milestone]}{index < milestones.length - 1 && <i>→</i>}</span>)}</div></div></section>; }
 function ServicesPage({ go }: { go: (v: View) => void }) { const items = [["Air freight","Fast, priority transport for time-sensitive packages.",Plane],["Sea freight","Economical consolidation for larger shipments.",Ship],["Package forwarding","A personal US address for safe online shopping.",Package],["Local delivery","Reliable last-mile delivery across Jamaica.",Truck]] as const; return <section className="service-detail-grid">{items.map(([name, text, Icon]) => <article className="detail-card" key={name}><div className="detail-icon"><Icon /></div><h2>{name}</h2><p>{text}</p><button className="text-button" onClick={() => go("contact")}>Talk to a specialist <ArrowRight size={15} /></button></article>)}</section>; }
 function RatesPage() {
   const [rates, setRates] = useState<RateSettings | null>(null);
@@ -213,6 +228,9 @@ function Portal({ admin, userId, email, role, contact, initialPage, onInitialPag
   useEffect(() => {
     if (initialPage) { setActive(initialPage); onInitialPageApplied?.(); }
   }, [initialPage, onInitialPageApplied]);
+  useEffect(() => {
+    if (!admin && userId) void syncFreightForwarderAccount().catch(error => console.error("Unable to sync customer account with the freight forwarder.", error));
+  }, [admin, userId]);
   useEffect(() => {
     if (!notificationsOpen) return;
     const closeOnOutsidePointerDown = (event: PointerEvent) => {
@@ -995,7 +1013,12 @@ function ShippingCalculator() {
   const [value, setValue] = useState("");
   const [weight, setWeight] = useState("");
   const [result, setResult] = useState<number | null>(null); const [rates, setRates] = useState<RateSettings | null>(null);
-  useEffect(() => { loadRateSettings().then(setRates).catch(() => setRates(null)); }, []);
+  useEffect(() => scheduleWhenIdle(() => {
+    loadRateSettings().then(setRates).catch(error => {
+      console.error("Unable to load shipping rates.", error);
+      setRates(null);
+    });
+  }), []);
   const categoryRates: Record<string, number> = { Apparel: 0, Electronics: 0.08, Shoes: 0.03, "Beauty & personal care": 0.05, "Household goods": 0.02, "Commercial goods": 0.06 };
   const calculate = (event: FormEvent) => {
     event.preventDefault();
@@ -1122,10 +1145,13 @@ function AnnouncementPopup({ onNavigate, onUploadInvoice }: { onNavigate: (view:
   const [closed, setClosed] = useState(false);
   useEffect(() => {
     if (announcementShownThisSession || !supabaseConfigured) return;
-    listPublicAnnouncements().then(({ data }) => {
-      const item = data?.[0];
-      if (item) { announcementShownThisSession = true; setAnnouncement(item); if (item.countdown && item.ends_at) setSeconds(Math.max(0, Math.floor((new Date(item.ends_at).getTime() - Date.now()) / 1000))); }
-    }).catch(() => undefined);
+    return scheduleWhenIdle(() => {
+      listPublicAnnouncements().then(({ data, error }) => {
+        if (error) throw error;
+        const item = data?.[0];
+        if (item) { announcementShownThisSession = true; setAnnouncement(item); if (item.countdown && item.ends_at) setSeconds(Math.max(0, Math.floor((new Date(item.ends_at).getTime() - Date.now()) / 1000))); }
+      }).catch(error => console.error("Unable to load public announcements.", error));
+    });
   }, []);
   useEffect(() => {
     if (seconds === null) return;

@@ -2,7 +2,7 @@ const API_URL = import.meta.env.VITE_API_URL?.replace(/\/$/, "");
 
 export async function trackPackage(trackingNumber: string): Promise<{ status: string; destination: string }> {
   if (!API_URL) {
-    return { status: "in transit", destination: "Kingston" };
+    throw new Error("Package tracking is temporarily unavailable.");
   }
 
   const response = await fetch(`${API_URL}/packages/tracking/${encodeURIComponent(trackingNumber)}`);
