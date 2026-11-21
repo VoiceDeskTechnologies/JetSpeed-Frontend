@@ -2,8 +2,9 @@ User-agent: *
 Allow: /
 Disallow: /dashboard
 Disallow: /admin
+Disallow: /customer
 Disallow: /login
 Disallow: /signup
 Disallow: /api/
 
-Sitemap: https://jetspeedcouriers.com/sitemap.xml
+Sitemap: https://www.globalxendja.com/sitemap.xml
