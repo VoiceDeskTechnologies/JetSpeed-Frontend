@@ -11,7 +11,7 @@ import { Announcement, AuthorizedPickupPerson, createAnnouncement, createAuthori
 import { addReferralDeliveryArea, getReferralManagement, getReferralSummary, ReferralManagement as ReferralManagementData, ReferralSummary, removeReferralDeliveryArea, updateReferralCustomerEligibility, updateReferralSettings, validateReferralCode } from "./lib/referrals";
 
 type View = "home" | "services" | "rates" | "track" | "about" | "contact" | "help" | "terms" | "privacy" |
-  "customer" | "admin";
+  "customer" | "admin" | "login" | "signup";
 const viewPaths: Record<View, string> = {
   home: "/",
   services: "/services",
@@ -24,6 +24,8 @@ const viewPaths: Record<View, string> = {
   privacy: "/privacy",
   customer: "/customer",
   admin: "/admin",
+  login: "/login",
+  signup: "/signup",
 };
 const views = Object.keys(viewPaths) as View[];
 function announcementUrl(url: string) {
@@ -45,7 +47,6 @@ function normalizeLocation() {
     window.history.replaceState(null, "", `${path}${window.location.search}`);
   }
 }
-type Modal = "login" | "signup" | null;
 type ContactSettings = { support_phone: string; support_email: string; whatsapp_phone: string };
 type RateSettings = { air_first_pound: number; air_second_pound: number; air_third_pound: number; air_additional_pound: number; sea_first_pound: number; sea_second_pound: number; sea_third_pound: number; sea_additional_pound: number };
 function scheduleWhenIdle(task: () => void) {
@@ -85,7 +86,6 @@ function Logo({ compact = false }: { compact?: boolean }) {
 
 export function App() {
   const [view, setView] = useState<View>(getViewFromLocation);
-  const [modal, setModal] = useState<Modal>(null);
   const [openInvoicePage, setOpenInvoicePage] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [sessionEmail, setSessionEmail] = useState("");
@@ -137,20 +137,21 @@ export function App() {
   const openInvoiceUpload = () => {
     setOpenInvoicePage(true);
     if (userId) go("customer");
-    else { setModal("login"); go("home"); }
+    else go("login");
   };
   const logout = async () => { if (supabase) await signOut(); setUserId(null); setSessionEmail(""); go("home"); };
   if (view === "customer") return <><AnnouncementPopup onNavigate={go} onUploadInvoice={openInvoiceUpload} /><Portal admin={false} userId={userId} email={sessionEmail} role="customer" contact={contactSettings} initialPage={openInvoicePage ? "Upload Invoice" : undefined} onInitialPageApplied={() => setOpenInvoicePage(false)} onBack={() => go("home")} onLogout={logout} /></>;
   if (view === "admin") { if (!authReady) return <div className="portal-route-loading"><h2>Restoring your staff session…</h2></div>; return isStaff ? <Portal admin userId={userId} email={sessionEmail} role={userRole} contact={contactSettings} onBack={() => go("home")} onLogout={logout} /> : <PublicPage view="home" go={go} contact={contactSettings} />; }
+  if (view === "login" || view === "signup") return <><header className="site-header"><Logo /><div className="auth-header-link"><span> {view === "login" ? "New to Global Xend JA?" : "Already have an account?"}</span><button className="button button-small" onClick={() => go(view === "login" ? "signup" : "login")}>{view === "login" ? "Sign Up" : "Login"}</button></div></header><AuthPage type={view} onNavigate={go} onSuccess={(email) => { setSessionEmail(email); go("customer"); }} /><Footer go={go} staffRole={null} contact={contactSettings} /></>;
   return <div id="top"><AnnouncementPopup onNavigate={go} onUploadInvoice={openInvoiceUpload} /><header className="site-header"><Logo />
     <button className="menu-toggle" onClick={() => setMenuOpen(!menuOpen)} aria-label="Toggle menu">{menuOpen ? <X /> : <Menu />}</button>
     <nav className={menuOpen ? "nav open" : "nav"}>{[
       ["home", "Home"], ["services", "Services"], ["rates", "Rates"], ["track", "Track Package"], ["about", "About Us"], ["contact", "Contact"], ["help", "Help Center"],
     ].map(([id, label]) => <button key={id} onClick={() => go(id as View)}>{label}</button>)}<button className="theme-toggle" onClick={() => setDarkMode(!darkMode)} aria-label={darkMode ? "Switch to light mode" : "Switch to dark mode"} title={darkMode ? "Switch to light mode" : "Switch to dark mode"}>{darkMode ? <Sun size={18} /> : <Moon size={18} />}</button><span className="nav-actions">
-      {userId ? <><button className="login-link" onClick={() => go(isStaff ? "admin" : "customer")}>{isStaff ? "Staff panel" : "Dashboard"} <ArrowRight size={14} /></button><button className="button button-small logout-button" onClick={logout} aria-label="Log out" title="Log out"><LogOut size={16} /></button></> : <><button className="login-link" onClick={() => setModal("login")}>Login</button><button className="button button-small" onClick={() => setModal("signup")}>Sign Up</button></>}
+      {userId ? <><button className="login-link" onClick={() => go(isStaff ? "admin" : "customer")}>{isStaff ? "Staff panel" : "Dashboard"} <ArrowRight size={14} /></button><button className="button button-small logout-button" onClick={logout} aria-label="Log out" title="Log out"><LogOut size={16} /></button></> : <><button className="login-link" onClick={() => go("login")}>Login</button><button className="button button-small" onClick={() => go("signup")}>Sign Up</button></>}
     </span></nav></header>
-    {view === "home" ? <Home go={go} onSignup={() => setModal("signup")} courierCodePrefix={courierCodePrefix} /> : <PublicPage view={view} go={go} contact={contactSettings} />}
-    <Footer go={go} staffRole={isStaff && userRole !== "customer" ? userRole : null} contact={contactSettings} /><a className="floating-whatsapp" href={`https://wa.me/${contactSettings.whatsapp_phone.replace(/\D/g, "")}?text=${encodeURIComponent("Hi Global Xend JA, I would like help with a shipment or shipping enquiry.")}`} target="_blank" rel="noreferrer" aria-label="Chat with Global Xend JA on WhatsApp" title="Chat with us on WhatsApp"><MessageCircle size={23} /></a>{modal && <AuthModal type={modal} onClose={() => { setModal(null); setOpenInvoicePage(false); }} onSuccess={(email) => { setSessionEmail(email); setModal(null); go("customer"); }} />}
+    {view === "home" ? <Home go={go} onSignup={() => go("signup")} courierCodePrefix={courierCodePrefix} /> : <PublicPage view={view} go={go} contact={contactSettings} />}
+    <Footer go={go} staffRole={isStaff && userRole !== "customer" ? userRole : null} contact={contactSettings} /><a className="floating-whatsapp" href={`https://wa.me/${contactSettings.whatsapp_phone.replace(/\D/g, "")}?text=${encodeURIComponent("Hi Global Xend JA, I would like help with a shipment or shipping enquiry.")}`} target="_blank" rel="noreferrer" aria-label="Chat with Global Xend JA on WhatsApp" title="Chat with us on WhatsApp"><MessageCircle size={23} /></a>
   </div>;
 }
 
@@ -162,7 +163,7 @@ function Home({ go, onSignup, courierCodePrefix }: { go: (v: View) => void; onSi
       <div className="hero-copy">
         <p className="eyebrow"><span /> JAMAICA'S SHIPPING PARTNER</p>
         <h1>Your World.<br /><em>Delivered Faster.</em></h1>
-        <p className="hero-text">Shop from your favourite stores in the USA and get your packages delivered to Jamaica safely, conveniently and reliably.</p>
+        <p className="hero-text">Shop from your favourite stores in the USA and get your packages delivered to Jamaica safely, conveniently and reliably. We ship to Jamaica twice weekly.</p>
         <div className="hero-actions"><button className="button" onClick={onSignup}>Get your US address today <ArrowRight size={17} /></button><button className="button button-outline" onClick={() => go("track")}>Track a Package <Search size={17} /></button></div>
         <div className="hero-proof"><strong>10,000+</strong> packages delivered with care</div>
         <div className="hero-flight" aria-hidden="true"><span className="flight-label flight-origin">Miami</span><span className="flight-label flight-destination">Jamaica</span><span className="flight-route"><span className="flight-plane"><Plane size={22} /></span><span className="flight-confetti">{Array.from({ length: 10 }, (_, index) => <i key={index} />)}</span></span></div>
@@ -1032,9 +1033,8 @@ function ShippingCalculator() {
   return <section className="calculator-section container"><div className="calculator-copy"><p className="eyebrow orange">PLAN YOUR SHIPMENT</p><h2>Estimate your collection cost.</h2><p>Choose your freight type, tell us what you're sending, and estimate the JMD amount due when you collect.</p></div><form className="calculator-card" onSubmit={calculate}><div className="calculator-row"><label>Freight type<select value={freight} onChange={e => setFreight(e.target.value as "air" | "sea")}><option value="air">Air freight · faster</option><option value="sea">Sea freight · economical</option></select></label><label>Category<select value={category} onChange={e => setCategory(e.target.value)}>{Object.keys(categoryRates).map(item => <option key={item}>{item}</option>)}</select></label></div><div className="calculator-row"><label>Item value (USD)<input type="number" min="0" step="0.01" value={value} onChange={e => setValue(e.target.value)} placeholder="e.g. 150" required /></label><label>Estimated weight (lb)<input type="number" min="0.1" step="0.1" value={weight} onChange={e => setWeight(e.target.value)} placeholder="e.g. 5" required /></label></div><button className="button" type="submit" disabled={!rates}>{rates ? "Calculate estimate" : "Live rates unavailable"} <ArrowRight size={16} /></button>{result !== null && <div className="calculator-result"><span>Estimated collection amount</span><strong>JMD ${result.toLocaleString("en-JM")}</strong><small>{freight === "air" ? "Air freight" : "Sea freight"} · {weight} lb · {category}</small></div>}</form></section>;
 }
 function Footer({ go, staffRole, contact }: { go: (v: View) => void; staffRole: "admin" | "support" | null; contact: ContactSettings }) { return <footer><div className="footer-main container"><div><Logo /><p>Your world. Delivered faster.<br />Reliable shipping from the USA to Jamaica.</p></div><div><h4>Support</h4><button onClick={() => go("help")}>Help center</button><button onClick={() => go("terms")}>Terms & conditions</button><button onClick={() => go("privacy")}>Privacy policy</button></div><div><h4>Contact us</h4><p><a href={`tel:${contact.support_phone.replace(/\D/g, "")}`}>{contact.support_phone}</a><br /><a href={`mailto:${contact.support_email}`}>{contact.support_email}</a></p>{staffRole && <button className="text-button" onClick={() => go("admin")}>{staffRole === "support" ? "Support portal →" : "Admin portal →"}</button>}</div></div><div className="footer-bottom container">© {new Date().getFullYear()} Global Xend JA. All rights reserved.</div></footer>; }
-function AuthModal({ type, onClose, onSuccess }: { type: "login" | "signup"; onClose: () => void; onSuccess: (email: string) => void }) {
-  const [mode, setMode] = useState<"login" | "signup">(type);
-  const login = mode === "login";
+function AuthPage({ type, onNavigate, onSuccess }: { type: "login" | "signup"; onNavigate: (view: View) => void; onSuccess: (email: string) => void }) {
+  const login = type === "login";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -1109,7 +1109,7 @@ function AuthModal({ type, onClose, onSuccess }: { type: "login" | "signup"; onC
       setSaving(false);
     }
   };
-  return <div className="modal-backdrop" onMouseDown={onClose}><div className={!login ? "auth-modal signup-modal" : "auth-modal"} onMouseDown={e => e.stopPropagation()}><button className="modal-close" onClick={onClose} aria-label="Close sign in"><X /></button><div className="auth-brand"><Logo /><p>{login ? "Welcome back to effortless shipping." : "Your world is waiting."}</p></div><div className="auth-form"><div className="auth-tabs"><button className={login ? "active" : ""} type="button" onClick={() => { setError(""); setMode("login"); }}>Login</button><button className={!login ? "active" : ""} type="button" onClick={() => { setError(""); setMode("signup"); }}>Sign up</button></div><h2>{login ? "Welcome back" : "Get your US address"}</h2><p className="muted">{login ? "Sign in to manage your shipments." : "Create your account and start shipping."}</p>{!login && <div className="form-grid signup-fields">
+  return <main className="auth-page"><div className={!login ? "auth-modal signup-modal" : "auth-modal"}><div className="auth-brand"><Logo /><p>{login ? "Welcome back to effortless shipping." : "Your world is waiting."}</p></div><div className="auth-form"><div className="auth-tabs"><button className={login ? "active" : ""} type="button" onClick={() => { setError(""); onNavigate("login"); }}>Login</button><button className={!login ? "active" : ""} type="button" onClick={() => { setError(""); onNavigate("signup"); }}>Sign up</button></div><h2>{login ? "Welcome back" : "Get your US address"}</h2><p className="muted">{login ? "Sign in to manage your shipments." : "Create your account and start shipping."}</p>{!login && <div className="form-grid signup-fields">
     <label>First name<input value={firstName} onChange={event => setFirstName(event.target.value)} autoComplete="given-name" required /></label>
     <label>Last name<input value={lastName} onChange={event => setLastName(event.target.value)} autoComplete="family-name" required /></label>
     <label className="signup-wide">Address line 1<input value={addressLine1} onChange={event => setAddressLine1(event.target.value)} autoComplete="address-line1" required /></label>
@@ -1119,7 +1119,7 @@ function AuthModal({ type, onClose, onSuccess }: { type: "login" | "signup"; onC
     <label className="signup-wide">Mobile number<input type="tel" value={mobile} onChange={event => setMobile(event.target.value)} autoComplete="tel" placeholder="8765550123" required /></label>
     <label className="signup-wide">TRN<input value={trn} onChange={event => setTrn(event.target.value.replace(/\D/g, "").slice(0, 9))} inputMode="numeric" autoComplete="off" maxLength={9} required /></label>
     <label className="signup-wide">Reward / Referral Code <span className="muted">(optional)</span><input value={referralCode} onChange={event => setReferralCode(event.target.value.toUpperCase())} placeholder="Enter code if you have one" autoComplete="off" /><small className="muted">Have a referral code? Enter it here to receive your Global Xend JA referral benefits.</small></label>
-  </div>}<label>Email address<input type="email" value={email} onChange={event => setEmail(event.target.value)} autoComplete="email" placeholder="you@example.com" required /></label><label>Password<input type="password" value={password} onChange={event => setPassword(event.target.value)} autoComplete={login ? "current-password" : "new-password"} placeholder="••••••••" minLength={login ? undefined : 8} required /></label>{!login && <label>Confirm password<input type="password" value={confirmPassword} onChange={event => setConfirmPassword(event.target.value)} autoComplete="new-password" minLength={8} required /></label>}{error && <p className="form-error">{error}</p>}<button className="button full" disabled={saving || !email.trim() || !password} onClick={() => void submit()}>{saving ? "Please wait..." : !supabaseConfigured ? "Configure Supabase to continue" : login ? "Login" : "Create account"} <ArrowRight size={16} /></button><p className="auth-foot">{login ? "Don't have an account? " : "Already have an account? "}<button type="button" onClick={() => { setError(""); setMode(login ? "signup" : "login"); }}>{login ? "Sign up" : "Login"}</button></p></div></div></div>;
+  </div>}<label>Email address<input type="email" value={email} onChange={event => setEmail(event.target.value)} autoComplete="email" placeholder="you@example.com" required /></label><label>Password<input type="password" value={password} onChange={event => setPassword(event.target.value)} autoComplete={login ? "current-password" : "new-password"} placeholder="••••••••" minLength={login ? undefined : 8} required /></label>{!login && <label>Confirm password<input type="password" value={confirmPassword} onChange={event => setConfirmPassword(event.target.value)} autoComplete="new-password" minLength={8} required /></label>}{error && <p className="form-error">{error}</p>}<button className="button full" disabled={saving || !email.trim() || !password} onClick={() => void submit()}>{saving ? "Please wait..." : !supabaseConfigured ? "Configure Supabase to continue" : login ? "Login" : "Create account"} <ArrowRight size={16} /></button><p className="auth-foot">{login ? "Don't have an account? " : "Already have an account? "}<button type="button" onClick={() => { setError(""); onNavigate(login ? "signup" : "login"); }}>{login ? "Sign up" : "Login"}</button></p></div></div></main>;
 }
 
 let announcementShownThisSession = false;

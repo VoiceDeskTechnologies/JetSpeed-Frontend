@@ -18,6 +18,12 @@
 .shipment-actions{display:flex;align-items:center;gap:7px}.icon-action.danger{color:#d94848;background:#fff0f0}.icon-action.danger:hover{background:#ffe0e0}
 .record-actions{display:flex;align-items:center;gap:7px}
 .whatsapp-contact{margin-top:12px;background:#159b65;box-shadow:0 10px 24px #159b6530}.whatsapp-contact:hover{background:#08784b}
+.auth-header-link{display:flex;align-items:center;gap:14px;color:var(--muted);font-size:12px}
+.auth-page{min-height:calc(100vh - 78px - 180px);padding:48px 20px;display:grid;place-items:center;background:#f5f7fb}
+.auth-page .auth-modal{width:min(850px,100%);max-height:none;overflow:visible;box-shadow:0 18px 50px #071a3818}
+.auth-page .auth-brand{min-height:100%}
+.auth-page .auth-form{max-height:none;overflow:visible}
+@media(max-width:620px){.auth-header-link>span{display:none}.auth-page{padding:24px 12px;min-height:calc(100vh - 68px - 180px)}.auth-page .auth-modal{display:grid;width:100%;max-height:none;overflow:visible;grid-template-columns:1fr}.auth-page .auth-brand{height:auto;min-height:130px;padding:22px;gap:16px;justify-content:center}.auth-page .auth-brand .logo-image{width:105px}.auth-page .auth-brand p{display:block;font-size:18px}.auth-page .auth-form{padding:24px 22px}.auth-page .auth-form h2{font-size:23px}.auth-page .signup-fields{grid-template-columns:1fr}}
 .portal-logout{display:flex;align-items:center;gap:10px;color:#b9c5d8;text-align:left;padding:12px;border-radius:8px;font-size:13px;margin-top:8px}.portal-logout:hover{background:#16345f;color:#fff}.logout-button{display:inline-flex!important;align-items:center;padding:10px 12px}
 .payment-modal{width:min(500px,calc(100vw - 28px));max-height:calc(100vh - 28px);overflow-y:auto;background:#fff;border-radius:16px;padding:28px;position:relative}.payment-modal h2{font-size:25px}.payment-modal label{display:block;color:var(--navy);font-size:12px;font-weight:700;margin:14px 0}.payment-modal input,.payment-modal select{display:block;width:100%;margin-top:7px}
 .system-health{display:flex;align-items:flex-start;gap:12px;margin-top:22px}.system-health small{display:block;margin-top:5px;line-height:1.6}.health-dot{width:12px;height:12px;border-radius:50%;margin-top:4px;flex:0 0 12px}.health-dot.operational{background:#159b65;box-shadow:0 0 0 5px #159b6525}.health-dot.outage{background:#d94848;box-shadow:0 0 0 5px #d9484825}
