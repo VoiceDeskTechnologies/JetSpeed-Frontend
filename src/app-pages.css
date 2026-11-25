@@ -19,6 +19,8 @@
 .record-actions{display:flex;align-items:center;gap:7px}
 .whatsapp-contact{margin-top:12px;background:#159b65;box-shadow:0 10px 24px #159b6530}.whatsapp-contact:hover{background:#08784b}
 .auth-header-link{display:flex;align-items:center;gap:14px;color:var(--muted);font-size:12px}
+.required-mark{color:var(--orange);font-weight:800}
+.required-note{margin:-4px 0 12px}
 .auth-page{min-height:calc(100vh - 78px - 180px);padding:48px 20px;display:grid;place-items:center;background:#f5f7fb}
 .auth-page .auth-modal{width:min(850px,100%);max-height:none;overflow:visible;box-shadow:0 18px 50px #071a3818}
 .auth-page .auth-brand{min-height:100%}
