@@ -852,6 +852,24 @@ function AdminWorkspace({ active, tickets, shipments, profiles, payments, invoic
   const [newShipmentOpen, setNewShipmentOpen] = useState(false);
   const [localInvoices, setLocalInvoices] = useState(invoices);
   useEffect(() => setLocalInvoices(invoices), [invoices]);
+  const openPackageInvoice = async (packageId: string) => {
+    try {
+      let invoice = localInvoices.find(row => row.package_id === packageId && row.invoice_kind !== "shipping_charge" && row.file_path);
+      if (!invoice) {
+        const result = await listAllInvoices();
+        if (result.error) { window.alert(`Unable to load the uploaded invoice: ${result.error.message}`); return; }
+        const invoiceRows = result.data ?? [];
+        onInvoicesUpdated(invoiceRows);
+        invoice = invoiceRows.find(row => row.package_id === packageId && row.invoice_kind !== "shipping_charge" && row.file_path);
+      }
+      if (!invoice?.file_path) { window.alert("No uploaded invoice file was found for this package."); return; }
+      const result = await getInvoiceDownloadUrl(invoice.file_path);
+      if (result.error || !result.data?.signedUrl) { window.alert(result.error?.message || "Unable to open the uploaded invoice."); return; }
+      window.open(result.data.signedUrl, "_blank", "noopener,noreferrer");
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : "Unable to open the uploaded invoice.");
+    }
+  };
   const savePackage = async (shipment: any) => {
     const enteredWeight = weightById[shipment.id] ?? shipment.weight_lb;
     const weight = enteredWeight === "" || enteredWeight === null || enteredWeight === undefined ? null : Number(enteredWeight);
@@ -945,7 +963,7 @@ function AdminWorkspace({ active, tickets, shipments, profiles, payments, invoic
           </td>
           <td><select value={selectedStatus} onChange={event => setStatusById(current => ({ ...current, [shipment.id]: event.target.value }))}><option value="label_created">Label created</option><option value="received_at_miami">Received at Miami hub</option><option value="in_transit">In transit</option><option value="ready_for_pickup">Ready for pickup/Delivery</option></select></td>
           <td>{shipment.origin} → {shipment.destination}</td>
-          <td><span className="invoice-status"><FileText size={15} /> Invoice <i className={shipment.invoice_uploaded ? "pulse-dot uploaded" : "pulse-dot missing"} /></span></td>
+          <td><span className="invoice-status">{shipment.invoice_uploaded ? <button className="invoice-view-button" type="button" onClick={() => void openPackageInvoice(shipment.id)} title={`View uploaded invoice for ${shipment.tracking_number}`} aria-label={`View uploaded invoice for ${shipment.tracking_number}`}><FileText size={15} /></button> : <FileText size={15} />} Invoice <i className={shipment.invoice_uploaded ? "pulse-dot uploaded" : "pulse-dot missing"} /></span></td>
           <td>{canNotify ? <div className="notification-actions">
             <a className="icon-action whatsapp" href={`https://wa.me/${String(shipment.customer_phone || "").replace(/\D/g, "")}?text=${encodeURIComponent(message)}`} target="_blank" rel="noreferrer" title="Send WhatsApp template" aria-label="Send WhatsApp template"><MessageCircle size={17} /></a>
             {selectedStatus === "received_at_miami" && <button className="icon-action email" type="button" onClick={async () => { try { await sendWarehousePackageEmail(shipment.id); } catch (error) { window.alert(error instanceof Error ? error.message : "Unable to send warehouse email."); } }} title="Send warehouse arrival email" aria-label="Send warehouse arrival email"><Mail size={17} /></button>}
