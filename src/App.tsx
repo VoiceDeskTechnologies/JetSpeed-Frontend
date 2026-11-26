@@ -7,7 +7,7 @@ import {
 import { trackPackage } from "./lib/api";
 import { Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { supabase, supabaseConfigured } from "./lib/supabase";
-import { Announcement, AuthorizedPickupPerson, createAnnouncement, createAuthorizedPickupPerson, createPackage, createShippingService, createSupportTicket, deleteAnnouncement, deleteAuthorizedPickupPerson, deleteInvoice, deletePackage, deletePayment, getAuthorizedPickupIdUrl, getInvoiceDownloadUrl, getProfile, getSession, hasCustomerTrn, listAllInvoices, listAllPayments, listAllShipments, listAllSupportTickets, listAnnouncements, listAuthorizedPickupPersons, listInvoices, listNotifications, listProfiles, listPublicAnnouncements, listShipments, listShippingServices, listSiteSettings, listSupportTickets, listTrackingEvents, markNotificationRead, recordPayment, saveSiteSetting, sendPaymentReceipt, sendWarehousePackageEmail, signIn, signUp, signOut, syncFreightForwarderAccount, updateAnnouncement, updateCustomerTrn, updateDeliveryPreference, updateEmail, updatePackageInvoice, updatePackageProcessing, updatePassword, updateProfile, updateShippingService, updateSupportTicketStatus, updateUserRole, uploadInvoiceFile } from "./lib/data";
+import { Announcement, AuthorizedPickupPerson, createAnnouncement, createAuthorizedPickupPerson, createPackage, createShippingService, createSupportTicket, deleteAnnouncement, deleteAuthorizedPickupPerson, deleteInvoice, deletePackage, deletePayment, getAuthorizedPickupIdUrl, getInvoiceDownloadUrl, getProfile, getSession, hasCustomerTrn, listAllInvoices, listAllPayments, listAllShipments, listAllSupportTickets, listAnnouncements, listAuthorizedPickupPersons, listInvoices, listNotifications, listProfiles, listPublicAnnouncements, listShipments, listShippingServices, listSiteSettings, listSupportTickets, listTrackingEvents, markNotificationRead, recordPayment, saveSiteSetting, sendPackageReadyEmail, sendPaymentReceipt, sendWarehousePackageEmail, signIn, signUp, signOut, syncFreightForwarderAccount, updateAnnouncement, updateCustomerTrn, updateDeliveryPreference, updateEmail, updatePackageInvoice, updatePackageProcessing, updatePassword, updateProfile, updateShippingService, updateSupportTicketStatus, updateUserRole, uploadInvoiceFile } from "./lib/data";
 import { addReferralDeliveryArea, getReferralManagement, getReferralSummary, ReferralManagement as ReferralManagementData, ReferralSummary, removeReferralDeliveryArea, updateReferralCustomerEligibility, updateReferralSettings, validateReferralCode } from "./lib/referrals";
 
 type View = "home" | "services" | "rates" | "track" | "about" | "contact" | "help" | "terms" | "privacy" |
@@ -316,7 +316,7 @@ function CustomerWorkspace({ active, shipments, profile, warehouse, contact, use
   if (active === "Upload Invoice") return <InvoiceUpload shipments={shipments} userId={userId} />;
   if (active === "Authorized Pickup") return <AuthorizedPickupWorkspace userId={userId} />;
   if (active === "Referral & Rewards") return <ReferralWorkspace />;
-  if (active === "My Shipments") return <section className="portal-card"><div className="card-title"><div><h2>My Shipments</h2><p className="muted">Search your shipment history and open a shipment detail.</p></div></div><div className="toolbar"><input aria-label="Search shipments" value={query} onChange={e => setQuery(e.target.value)} placeholder="Search tracking number or route" /><select aria-label="Filter shipments"><option>All statuses</option><option>In transit</option><option>Delivered</option></select></div><div className="table-wrap"><table><thead><tr><th>Tracking number</th><th>Status</th><th>Collection amount</th><th>Route</th><th>Date</th><th>Action</th></tr></thead><tbody>{visibleShipments.length ? visibleShipments.map(s => <tr key={s.id}><td><b>{s.tracking_number}</b></td><td><span className={"status " + (s.status === "in_transit" ? "in-transit" : "")}>{s.status.replace(/_/g, " ")}</span></td><td>{s.pricing_breakdown ? <div className="package-price-breakdown"><small>Shipping: JMD ${Number(s.pricing_breakdown.normal_shipping_charge_jmd).toLocaleString("en-JM")}</small>{Number(s.pricing_breakdown.referral_discount_jmd) > 0 && <small>Referral discount: -JMD ${Number(s.pricing_breakdown.referral_discount_jmd).toLocaleString("en-JM")}</small>}<strong>Due: JMD ${Number(s.collection_amount_jmd || 0).toLocaleString("en-JM")}</strong>{s.pricing_breakdown.local_delivery_free && <small>Local delivery: FREE</small>}</div> : "—"}</td><td>{s.origin} → {s.destination}</td><td>{new Date(s.created_at).toLocaleDateString()}</td><td><button className="text-button" onClick={() => setTracking(s.tracking_number)}>View details <ChevronRight size={14} /></button><button className="text-button" onClick={() => onNavigate("Upload Invoice")}>Upload invoice</button></td></tr>) : <tr><td colSpan={6}>No shipments found.</td></tr>}</tbody></table></div></section>;
+  if (active === "My Shipments") return <section className="portal-card"><div className="card-title"><div><h2>My Shipments</h2><p className="muted">Search your shipment history and open a shipment detail.</p></div></div><div className="toolbar"><input aria-label="Search shipments" value={query} onChange={e => setQuery(e.target.value)} placeholder="Search tracking number or route" /><select aria-label="Filter shipments"><option>All statuses</option><option>In transit</option><option>Delivered</option></select></div><div className="table-wrap"><table><thead><tr><th>Tracking number</th><th>Status</th><th>Collection amount</th><th>Route</th><th>Date</th><th>Action</th></tr></thead><tbody>{visibleShipments.length ? visibleShipments.map(s => <tr key={s.id}><td><b>{s.tracking_number}</b></td><td><span className={"status " + (s.status === "in_transit" ? "in-transit" : "")}>{s.status.replace(/_/g, " ")}</span></td><td>{s.status === "ready_for_pickup" || s.status === "delivered" ? s.pricing_breakdown ? <div className="package-price-breakdown"><small>Shipping: JMD ${Number(s.pricing_breakdown.normal_shipping_charge_jmd).toLocaleString("en-JM")}</small>{Number(s.pricing_breakdown.referral_discount_jmd) > 0 && <small>Referral discount: -JMD ${Number(s.pricing_breakdown.referral_discount_jmd).toLocaleString("en-JM")}</small>}<strong>Due: JMD ${Number(s.collection_amount_jmd || 0).toLocaleString("en-JM")}</strong>{s.pricing_breakdown.local_delivery_free && <small>Local delivery: FREE</small>}</div> : "—" : <span className="muted">Shown when ready for pickup</span>}</td><td>{s.origin} → {s.destination}</td><td>{new Date(s.created_at).toLocaleDateString()}</td><td><button className="text-button" onClick={() => setTracking(s.tracking_number)}>View details <ChevronRight size={14} /></button><button className="text-button" onClick={() => onNavigate("Upload Invoice")}>Upload invoice</button></td></tr>) : <tr><td colSpan={6}>No shipments found.</td></tr>}</tbody></table></div></section>;
   if (active === "Account Settings") return <AccountSettings userId={userId} />;
   return <section className="portal-card"><div className="card-title"><div><h2>Support</h2><p className="muted">Get help from our shipping team.</p></div><a className="button button-small" href={`https://wa.me/${contact.whatsapp_phone.replace(/\D/g, "")}`} target="_blank" rel="noreferrer">WhatsApp us</a></div><p><a href={`mailto:${contact.support_email}`}>Email {contact.support_email}</a></p><form onSubmit={submitTicket}><div className="form-grid">{field("Subject", ticket.subject, v => setTicket({ ...ticket, subject: v }))}<label>Category<select value={ticket.category} onChange={e => setTicket({ ...ticket, category: e.target.value })}><option>Shipment</option><option>Billing</option><option>Account</option><option>Other</option></select></label><label>Priority<select value={ticket.priority} onChange={e => setTicket({ ...ticket, priority: e.target.value })}><option>Low</option><option>Normal</option><option>High</option></select></label></div><label>Message<textarea rows={5} value={ticket.message} onChange={e => setTicket({ ...ticket, message: e.target.value })} required /></label><button className="button" type="submit">Send ticket</button>{ticketError && <p className="form-error">{ticketError}</p>}{sent && <div className="notice"><CheckCircle2 size={17} />Ticket submitted successfully. Our team will respond soon.</div>}</form></section>;
 }
@@ -846,7 +846,9 @@ function AdminWorkspace({ active, tickets, shipments, profiles, payments, invoic
   const saveRole = async (profileId: string) => { const role = roleChanges[profileId]; if (!role) return; const result = await updateUserRole(profileId, role); setRoleMessage(result.error ? `Unable to update role: ${result.error.message}` : "User role updated."); };
   const [statusById, setStatusById] = useState<Record<string, string>>({});
   const [weightById, setWeightById] = useState<Record<string, string>>({});
+  const [customAmountById, setCustomAmountById] = useState<Record<string, string>>({});
   const [savingPackageById, setSavingPackageById] = useState<Record<string, boolean>>({});
+  const [sendingReadyEmailById, setSendingReadyEmailById] = useState<Record<string, boolean>>({});
   const [newShipmentOpen, setNewShipmentOpen] = useState(false);
   const [localInvoices, setLocalInvoices] = useState(invoices);
   useEffect(() => setLocalInvoices(invoices), [invoices]);
@@ -857,18 +859,23 @@ function AdminWorkspace({ active, tickets, shipments, profiles, payments, invoic
       window.alert("Enter a package weight greater than zero.");
       return;
     }
+    const enteredAmount = customAmountById[shipment.id] ?? (shipment.custom_collection_amount_jmd == null ? "" : String(shipment.custom_collection_amount_jmd));
+    const customAmount = enteredAmount.trim() ? Number(enteredAmount) : null;
+    if (customAmount !== null && (!Number.isFinite(customAmount) || customAmount < 0)) {
+      window.alert("Enter a valid custom amount of zero or more, or leave it blank to use the weight-based amount.");
+      return;
+    }
     const freightType = (shipment.freight_type === "sea" ? "sea" : "air") as "air" | "sea";
     const status = statusById[shipment.id] || shipment.status;
     setSavingPackageById(current => ({ ...current, [shipment.id]: true }));
     try {
-      const result = await updatePackageProcessing(shipment.id, status, weight, freightType);
+      const result = await updatePackageProcessing(shipment.id, status, weight, freightType, customAmount);
       onShipmentUpdated({ ...shipment, ...result });
       if (status === "ready_for_pickup") {
         const invoiceRows = await listAllInvoices();
         if (invoiceRows.error) window.alert(`Package saved, but invoices could not be refreshed: ${invoiceRows.error.message}`);
         else onInvoicesUpdated(invoiceRows.data ?? []);
       }
-      if (result.email?.error) window.alert(`Package saved, but the ready notification email was not sent: ${result.email.error}`);
       if (result.warnings?.length) window.alert(result.warnings.join("\n"));
     } catch (error) {
       window.alert(error instanceof Error ? error.message : "Unable to save package changes.");
@@ -907,7 +914,7 @@ function AdminWorkspace({ active, tickets, shipments, profiles, payments, invoic
     </section>;
   }
   if (active === "Shipments") return <section className="portal-card">
-    <div className="card-title"><div><h2>Shipments</h2><p className="muted">Record package weight and review the backend-calculated amount due.</p></div><button className="button button-small" onClick={() => setNewShipmentOpen(true)}>+ New shipment</button></div>
+    <div className="card-title"><div><h2>Shipments</h2><p className="muted">Record package weight, review the calculated amount, or set a custom amount.</p></div><button className="button button-small" onClick={() => setNewShipmentOpen(true)}>+ New shipment</button></div>
     <div className="table-wrap"><table><thead><tr><th>Package</th><th>Weight / pricing</th><th>Milestone</th><th>Route</th><th>Invoice</th><th>Customer alerts</th><th>Action</th></tr></thead>
       <tbody>{shipments.length ? shipments.map(shipment => {
         const selectedStatus = statusById[shipment.id] || shipment.status;
@@ -915,6 +922,11 @@ function AdminWorkspace({ active, tickets, shipments, profiles, payments, invoic
         const amountValue = shipment.collection_amount_jmd;
         const amount = Number(amountValue || 0).toLocaleString("en-JM");
         const pricing = shipment.pricing_breakdown;
+        const customAmountDraft = customAmountById[shipment.id];
+        const hasUnsavedPackageChanges =
+          (statusById[shipment.id] !== undefined && statusById[shipment.id] !== shipment.status)
+          || (weightById[shipment.id] !== undefined && Number(weightById[shipment.id] || 0) !== Number(shipment.weight_lb || 0))
+          || (customAmountDraft !== undefined && (customAmountDraft.trim() ? Number(customAmountDraft) : null) !== (shipment.custom_collection_amount_jmd == null ? null : Number(shipment.custom_collection_amount_jmd)));
         const firstName = shipment.customer_name?.split(" ")[0] || "there";
         const message = selectedStatus === "received_at_miami"
           ? `Hi ${firstName}, your Global Xend JA package ${shipment.tracking_number} has arrived at our Miami warehouse and is being prepared for shipment to Jamaica. We will update you as it moves through our network.`
@@ -929,6 +941,7 @@ function AdminWorkspace({ active, tickets, shipments, profiles, payments, invoic
               <small>Local delivery: {pricing.local_delivery_free ? "FREE" : "Standard charges may apply"}</small>
               <strong>Total due: JMD ${amount}</strong>
             </div> : amountValue !== null && amountValue !== undefined ? <small className="collection-amount">JMD ${amount}</small> : <small className="muted">Add weight</small>}
+            <label className="collection-amount-override">Custom amount (JMD)<input type="number" min="0" step="0.01" value={customAmountById[shipment.id] ?? (shipment.custom_collection_amount_jmd == null ? "" : String(shipment.custom_collection_amount_jmd))} onChange={event => setCustomAmountById(current => ({ ...current, [shipment.id]: event.target.value }))} placeholder={amountValue == null ? "Use weight-based amount" : `Calculated: JMD ${amount}`} /><small>Leave blank to use the weight-based amount.</small></label>
           </td>
           <td><select value={selectedStatus} onChange={event => setStatusById(current => ({ ...current, [shipment.id]: event.target.value }))}><option value="label_created">Label created</option><option value="received_at_miami">Received at Miami hub</option><option value="in_transit">In transit</option><option value="ready_for_pickup">Ready for pickup/Delivery</option></select></td>
           <td>{shipment.origin} → {shipment.destination}</td>
@@ -936,6 +949,7 @@ function AdminWorkspace({ active, tickets, shipments, profiles, payments, invoic
           <td>{canNotify ? <div className="notification-actions">
             <a className="icon-action whatsapp" href={`https://wa.me/${String(shipment.customer_phone || "").replace(/\D/g, "")}?text=${encodeURIComponent(message)}`} target="_blank" rel="noreferrer" title="Send WhatsApp template" aria-label="Send WhatsApp template"><MessageCircle size={17} /></a>
             {selectedStatus === "received_at_miami" && <button className="icon-action email" type="button" onClick={async () => { try { await sendWarehousePackageEmail(shipment.id); } catch (error) { window.alert(error instanceof Error ? error.message : "Unable to send warehouse email."); } }} title="Send warehouse arrival email" aria-label="Send warehouse arrival email"><Mail size={17} /></button>}
+            {selectedStatus === "ready_for_pickup" && shipment.status === "ready_for_pickup" && <button className="icon-action email" type="button" disabled={!!sendingReadyEmailById[shipment.id] || hasUnsavedPackageChanges} onClick={async () => { setSendingReadyEmailById(current => ({ ...current, [shipment.id]: true })); try { const result = await sendPackageReadyEmail(shipment.id); window.alert(result.sent ? "Ready-for-pickup email sent." : result.reason || "The customer has disabled shipment status emails."); } catch (error) { window.alert(error instanceof Error ? error.message : "Unable to send ready-for-pickup email."); } finally { setSendingReadyEmailById(current => ({ ...current, [shipment.id]: false })); } }} title={hasUnsavedPackageChanges ? "Save package changes before sending this email" : "Manually send ready-for-pickup email"} aria-label="Manually send ready-for-pickup email"><Mail size={17} /></button>}
           </div> : <span className="muted">Available at warehouse or ready stage</span>}</td>
           <td><div className="shipment-actions"><button className="button button-small" disabled={!!savingPackageById[shipment.id]} onClick={() => void savePackage(shipment)}>{savingPackageById[shipment.id] ? "Saving..." : "Save package"}</button><button className="icon-action danger" type="button" onClick={async () => { if (!window.confirm(`Delete shipment ${shipment.tracking_number}? This cannot be undone.`)) return; const result = await deletePackage(shipment.id); if (result.error) window.alert(result.error.message); else onShipmentDeleted(shipment.id); }} title="Delete shipment" aria-label="Delete shipment"><Trash2 size={16} /></button></div></td>
         </tr>;

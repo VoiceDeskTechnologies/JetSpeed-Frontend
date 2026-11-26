@@ -1,7 +1,7 @@
 import { supabase } from "./supabase";
 
 export type Profile = { id: string; full_name: string | null; first_name?: string | null; last_name?: string | null; phone: string | null; email?: string | null; role: "customer" | "support" | "driver" | "admin"; identifier_code?: string | null; referral_code?: string | null; referral_discount_eligible?: boolean; address_line1?: string | null; address_line2?: string | null; city_town?: string | null; parish?: string | null; delivery_preference?: "pickup" | "delivery"; shipment_status_emails?: boolean; delivery_reminders?: boolean; us_address_line1?: string; us_address_city?: string; us_address_state?: string; us_address_zip?: string };
-export type Shipment = { id: string; tracking_number: string; status: string; origin: string; destination: string; estimated_delivery: string | null; created_at: string; invoice_uploaded: boolean; weight_lb?: number | null; freight_type?: "air" | "sea"; collection_amount_jmd?: number | null; pricing_breakdown?: PackagePricingBreakdown | null };
+export type Shipment = { id: string; tracking_number: string; status: string; origin: string; destination: string; estimated_delivery: string | null; created_at: string; invoice_uploaded: boolean; weight_lb?: number | null; freight_type?: "air" | "sea"; collection_amount_jmd?: number | null; custom_collection_amount_jmd?: number | null; pricing_breakdown?: PackagePricingBreakdown | null };
 export type TrackingEvent = { id: string; package_id: string; status: string; description: string | null; location: string | null; created_at: string };
 export type SupportTicket = { id: string; subject: string; category: string; priority: string; message: string; status: string; created_at: string };
 export type PackagePricingBreakdown = { chargeable_weight_lb: number; recorded_weight_lb: number; freight_type: "air" | "sea"; normal_shipping_charge_jmd: number; referral_discount_eligible: boolean; referral_code: string | null; referral_discount_jmd: number; free_delivery_eligible: boolean; local_delivery_free: boolean; final_amount_jmd: number; calculated_at: string };
@@ -30,10 +30,10 @@ export async function hasCustomerTrn(userId: string) {
 export async function updateCustomerTrn(userId: string, trn: string) {
   return requireClient().from("customer_sensitive_data").upsert({ user_id: userId, trn }, { onConflict: "user_id" }).select("user_id").single();
 }
-export async function listShipments(userId: string) { return requireClient().from("packages").select("id,tracking_number,status,origin,destination,estimated_delivery,created_at,invoice_uploaded,collection_amount_jmd,weight_lb,freight_type,pricing_breakdown").eq("customer_id", userId).order("created_at", { ascending: false }).returns<Shipment[]>(); }
-export async function listAllShipments() { return requireClient().from("packages").select("id,customer_id,tracking_number,status,origin,destination,estimated_delivery,created_at,invoice_uploaded,customer_name,customer_email,customer_phone,collection_amount_jmd,weight_lb,freight_type,pricing_breakdown,profiles:customer_id(full_name,phone)").order("created_at", { ascending: false }).returns<Shipment[]>(); }
+export async function listShipments(userId: string) { return requireClient().from("packages").select("id,tracking_number,status,origin,destination,estimated_delivery,created_at,invoice_uploaded,collection_amount_jmd,custom_collection_amount_jmd,weight_lb,freight_type,pricing_breakdown").eq("customer_id", userId).order("created_at", { ascending: false }).returns<Shipment[]>(); }
+export async function listAllShipments() { return requireClient().from("packages").select("id,customer_id,tracking_number,status,origin,destination,estimated_delivery,created_at,invoice_uploaded,customer_name,customer_email,customer_phone,collection_amount_jmd,custom_collection_amount_jmd,weight_lb,freight_type,pricing_breakdown,profiles:customer_id(full_name,phone)").order("created_at", { ascending: false }).returns<Shipment[]>(); }
 export async function createPackage(packageData: { customer_id: string; tracking_number: string; origin: string; destination: string; status: string; service_level: string; weight_kg: number | null; estimated_delivery: string | null; customer_name?: string | null; customer_email?: string | null; customer_phone?: string | null }) {
-  return requireClient().from("packages").insert(packageData).select("id,customer_id,tracking_number,status,origin,destination,estimated_delivery,created_at,invoice_uploaded,customer_name,customer_email,customer_phone,collection_amount_jmd,weight_lb,freight_type").single();
+  return requireClient().from("packages").insert(packageData).select("id,customer_id,tracking_number,status,origin,destination,estimated_delivery,created_at,invoice_uploaded,customer_name,customer_email,customer_phone,collection_amount_jmd,custom_collection_amount_jmd,weight_lb,freight_type").single();
 }
 export async function deletePackage(packageId: string) { return requireClient().from("packages").delete().eq("id", packageId); }
 export async function listSiteSettings() { return requireClient().from("site_settings").select("key,value").order("key"); }
@@ -69,7 +69,16 @@ export async function sendWarehousePackageEmail(packageId: string) {
   const response = await fetch(`${apiUrl}/package-notifications/${packageId}/warehouse-email`, { method: "POST", headers: { Authorization: `Bearer ${token}` } });
   if (!response.ok) throw new Error((await response.json() as { error?: string }).error || "Unable to send warehouse email.");
 }
-export async function updatePackageProcessing(packageId: string, status: string, weightLb: number | null, freightType: "air" | "sea") {
+export async function sendPackageReadyEmail(packageId: string) {
+  const session = await requireClient().auth.getSession();
+  const token = session.data.session?.access_token;
+  const apiUrl = import.meta.env.VITE_API_URL?.replace(/\/$/, "");
+  if (!token || !apiUrl) throw new Error("Email delivery is not configured or your staff session has expired.");
+  const response = await fetch(`${apiUrl}/package-notifications/${packageId}/ready-email`, { method: "POST", headers: { Authorization: `Bearer ${token}` } });
+  if (!response.ok) throw new Error((await response.json() as { error?: string }).error || "Unable to send ready-for-pickup email.");
+  return await response.json() as { sent: boolean; skipped?: boolean; reason?: string };
+}
+export async function updatePackageProcessing(packageId: string, status: string, weightLb: number | null, freightType: "air" | "sea", customAmountJmd: number | null) {
   const client = requireClient();
   const { data: session } = await client.auth.getSession();
   const token = session.session?.access_token;
@@ -78,16 +87,15 @@ export async function updatePackageProcessing(packageId: string, status: string,
   const response = await fetch(`${apiUrl}/packages/${packageId}`, {
     method: "PATCH",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ status, weight_lb: weightLb, freight_type: freightType }),
+    body: JSON.stringify({ status, weight_lb: weightLb, freight_type: freightType, custom_amount_jmd: customAmountJmd }),
   });
   const payload = await response.json() as {
-    data?: { id: string; status: string; weight_lb: number | null; freight_type: "air" | "sea"; collection_amount_jmd: number | null; pricing_breakdown: PackagePricingBreakdown | null };
-    email?: { sent: boolean; error?: string };
+    data?: { id: string; status: string; weight_lb: number | null; freight_type: "air" | "sea"; collection_amount_jmd: number | null; custom_collection_amount_jmd: number | null; pricing_breakdown: PackagePricingBreakdown | null };
     warnings?: string[];
     error?: string;
   };
   if (!response.ok || !payload.data) throw new Error(payload.error || "Unable to update package pricing.");
-  return { ...payload.data, email: payload.email, warnings: payload.warnings };
+  return { ...payload.data, warnings: payload.warnings };
 }
 export async function listTrackingEvents(packageId: string) { return requireClient().from("tracking_events").select("id,package_id,status,description,location,created_at").eq("package_id", packageId).order("created_at", { ascending: true }).returns<TrackingEvent[]>(); }
 export async function updatePackageInvoice(packageId: string, userId: string, filePath: string) {
