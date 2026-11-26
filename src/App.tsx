@@ -2,7 +2,7 @@ import { FormEvent, ReactNode, useEffect, useRef, useState } from "react";
 import {
   ArrowRight, BarChart3, Bell, CheckCircle2, ChevronRight, Clock3, Copy, FileText,
   Gift, Globe2, HelpCircle, LayoutDashboard, LogOut, Menu, Package, Plane, Search,
-  Settings, ShieldCheck, Ship, Sun, Moon, Truck, Trash2, Upload, Users, WalletCards, X, MessageSquare, MessageCircle, Mail, Info,
+  Pencil, Settings, ShieldCheck, Ship, Sun, Moon, Truck, Trash2, Upload, Users, WalletCards, X, MessageSquare, MessageCircle, Mail, Info,
 } from "lucide-react";
 import { trackPackage } from "./lib/api";
 import { Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
@@ -49,6 +49,7 @@ function normalizeLocation() {
 }
 type ContactSettings = { support_phone: string; support_email: string; whatsapp_phone: string };
 type RateSettings = { air_first_pound: number; air_second_pound: number; air_third_pound: number; air_additional_pound: number; sea_first_pound: number; sea_second_pound: number; sea_third_pound: number; sea_additional_pound: number };
+type PackageEditValues = { weightLb: number | null; itemDescription: string; courierTrackingNumber: string; customAmountJmd: number | null; serviceFeeOverrideJmd: number | null; customsFeeJmd: number; deliveryFeeJmd: number };
 function scheduleWhenIdle(task: () => void) {
   const idleWindow = window as Window & {
     requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
@@ -329,7 +330,32 @@ function CustomerWorkspace({ active, shipments, profile, warehouse, contact, use
   if (active === "Upload Invoice") return <InvoiceUpload shipments={shipments} userId={userId} />;
   if (active === "Authorized Pickup") return <AuthorizedPickupWorkspace userId={userId} />;
   if (active === "Referral & Rewards") return <ReferralWorkspace />;
-  if (active === "My Shipments") return <section className="portal-card"><div className="card-title"><div><h2>My Shipments</h2><p className="muted">Search your shipment history and open a shipment detail.</p></div></div><div className="toolbar"><input aria-label="Search shipments" value={query} onChange={e => setQuery(e.target.value)} placeholder="Search tracking number or route" /><select aria-label="Filter shipments"><option>All statuses</option><option>In transit</option><option>Delivered</option></select></div><div className="table-wrap"><table><thead><tr><th>Tracking number</th><th>Status</th><th>Collection amount</th><th>Route</th><th>Date</th><th>Action</th></tr></thead><tbody>{visibleShipments.length ? visibleShipments.map(s => <tr key={s.id}><td><b>{s.tracking_number}</b></td><td><span className={"status " + (s.status === "in_transit" ? "in-transit" : "")}>{s.status.replace(/_/g, " ")}</span></td><td>{s.status === "ready_for_pickup" || s.status === "delivered" ? s.pricing_breakdown ? <div className="package-price-breakdown"><small>Shipping: JMD ${Number(s.pricing_breakdown.normal_shipping_charge_jmd).toLocaleString("en-JM")}</small><small>Custom fee/adjustment: JMD ${Number(s.pricing_breakdown.custom_fee_adjustment_jmd || 0).toLocaleString("en-JM")}</small><small>Delivery fee: JMD ${Number(s.delivery_fee_jmd || 0).toLocaleString("en-JM")}</small>{Number(s.pricing_breakdown.referral_discount_jmd) > 0 && <small>Referral discount: -JMD ${Number(s.pricing_breakdown.referral_discount_jmd).toLocaleString("en-JM")}</small>}<strong>Due: JMD ${Number(s.collection_amount_jmd || 0).toLocaleString("en-JM")}</strong>{s.pricing_breakdown.local_delivery_free && Number(s.delivery_fee_jmd || 0) === 0 && <small>Local delivery: FREE</small>}</div> : "—" : <span className="muted">Shown when ready for pickup</span>}</td><td>{s.origin} → {s.destination}</td><td>{new Date(s.created_at).toLocaleDateString()}</td><td><button className="text-button" onClick={() => setTracking(s.tracking_number)}>View details <ChevronRight size={14} /></button><button className="text-button" onClick={() => onNavigate("Upload Invoice")}>Upload invoice</button>{(s.status === "ready_for_pickup" || s.status === "delivered") && <button className="text-button" onClick={() => void downloadShippingInvoice(s.id, s.tracking_number)}><FileText size={14} /> Download shipping invoice</button>}</td></tr>) : <tr><td colSpan={6}>No shipments found.</td></tr>}</tbody></table></div></section>;
+  if (active === "My Shipments") return <section className="portal-card">
+    <div className="card-title"><div><h2>My Shipments</h2><p className="muted">Search your shipment history and open a shipment detail.</p></div></div>
+    <div className="toolbar"><input aria-label="Search shipments" value={query} onChange={e => setQuery(e.target.value)} placeholder="Search tracking number or route" /><select aria-label="Filter shipments"><option>All statuses</option><option>In transit</option><option>Delivered</option></select></div>
+    <div className="table-wrap"><table><thead><tr><th>Tracking number</th><th>Status</th><th>Collection amount</th><th>Route</th><th>Date</th><th>Action</th></tr></thead>
+      <tbody>{visibleShipments.length ? visibleShipments.map(s => {
+        const amountVisible = s.status === "ready_for_pickup" || s.status === "delivered";
+        const pricing = s.pricing_breakdown;
+        const serviceFee = Number(pricing?.service_fee_jmd ?? pricing?.normal_shipping_charge_jmd ?? 0);
+        const customFee = Number(pricing?.custom_fee_adjustment_jmd || 0);
+        return <tr key={s.id}>
+          <td><b>{s.tracking_number}</b></td>
+          <td><span className={"status " + (s.status === "in_transit" ? "in-transit" : "")}>{s.status.replace(/_/g, " ")}</span></td>
+          <td>{amountVisible ? pricing ? <div className="package-price-breakdown">
+            <small>Service fee: JMD ${serviceFee.toLocaleString("en-JM")}</small>
+            <small>Custom fee/adjustment: JMD ${customFee.toLocaleString("en-JM")}</small>
+            <small>Customs fee: JMD ${Number(s.customs_fee_jmd ?? pricing.customs_fee_jmd ?? 0).toLocaleString("en-JM")}</small>
+            <small>Delivery fee: JMD ${Number(s.delivery_fee_jmd || 0).toLocaleString("en-JM")}</small>
+            {Number(pricing.referral_discount_jmd) > 0 && <small>Discount: -JMD ${Number(pricing.referral_discount_jmd).toLocaleString("en-JM")}</small>}
+            <strong>Grand total: JMD ${Number(s.collection_amount_jmd || 0).toLocaleString("en-JM")}</strong>
+          </div> : s.collection_amount_jmd != null ? <strong>Due: JMD ${Number(s.collection_amount_jmd).toLocaleString("en-JM")}</strong> : "—" : <span className="muted">Shown when ready for pickup</span>}</td>
+          <td>{s.origin} → {s.destination}</td><td>{new Date(s.created_at).toLocaleDateString()}</td>
+          <td><button className="text-button" onClick={() => setTracking(s.tracking_number)}>View details <ChevronRight size={14} /></button><button className="text-button" onClick={() => onNavigate("Upload Invoice")}>Upload invoice</button>{amountVisible && <button className="text-button" onClick={() => void downloadShippingInvoice(s.id, s.tracking_number)}><FileText size={14} /> Download shipping invoice</button>}</td>
+        </tr>;
+      }) : <tr><td colSpan={6}>No shipments found.</td></tr>}</tbody>
+    </table></div>
+  </section>;
   if (active === "Account Settings") return <AccountSettings userId={userId} />;
   return <section className="portal-card"><div className="card-title"><div><h2>Support</h2><p className="muted">Get help from our shipping team.</p></div><a className="button button-small" href={`https://wa.me/${contact.whatsapp_phone.replace(/\D/g, "")}`} target="_blank" rel="noreferrer">WhatsApp us</a></div><p><a href={`mailto:${contact.support_email}`}>Email {contact.support_email}</a></p><form onSubmit={submitTicket}><div className="form-grid">{field("Subject", ticket.subject, v => setTicket({ ...ticket, subject: v }))}<label>Category<select value={ticket.category} onChange={e => setTicket({ ...ticket, category: e.target.value })}><option>Shipment</option><option>Billing</option><option>Account</option><option>Other</option></select></label><label>Priority<select value={ticket.priority} onChange={e => setTicket({ ...ticket, priority: e.target.value })}><option>Low</option><option>Normal</option><option>High</option></select></label></div><label>Message<textarea rows={5} value={ticket.message} onChange={e => setTicket({ ...ticket, message: e.target.value })} required /></label><button className="button" type="submit">Send ticket</button>{ticketError && <p className="form-error">{ticketError}</p>}{sent && <div className="notice"><CheckCircle2 size={17} />Ticket submitted successfully. Our team will respond soon.</div>}</form></section>;
 }
@@ -858,15 +884,13 @@ function AdminWorkspace({ active, tickets, shipments, profiles, payments, invoic
   const [ticketStatusErrors, setTicketStatusErrors] = useState<Record<string, string>>({});
   const saveRole = async (profileId: string) => { const role = roleChanges[profileId]; if (!role) return; const result = await updateUserRole(profileId, role); setRoleMessage(result.error ? `Unable to update role: ${result.error.message}` : "User role updated."); };
   const [statusById, setStatusById] = useState<Record<string, string>>({});
-  const [weightById, setWeightById] = useState<Record<string, string>>({});
-  const [customAmountById, setCustomAmountById] = useState<Record<string, string>>({});
-  const [itemDescriptionById, setItemDescriptionById] = useState<Record<string, string>>({});
-  const [deliveryFeeById, setDeliveryFeeById] = useState<Record<string, string>>({});
+  const [editingPackageId, setEditingPackageId] = useState<string | null>(null);
   const [savingPackageById, setSavingPackageById] = useState<Record<string, boolean>>({});
   const [sendingReadyEmailById, setSendingReadyEmailById] = useState<Record<string, boolean>>({});
   const [newShipmentOpen, setNewShipmentOpen] = useState(false);
   const [localInvoices, setLocalInvoices] = useState(invoices);
   useEffect(() => setLocalInvoices(invoices), [invoices]);
+  const editingShipment = shipments.find(shipment => shipment.id === editingPackageId);
   const openPackageInvoice = async (packageId: string) => {
     try {
       let invoice = localInvoices.find(row => row.package_id === packageId && row.invoice_kind !== "shipping_charge" && row.file_path);
@@ -885,34 +909,41 @@ function AdminWorkspace({ active, tickets, shipments, profiles, payments, invoic
       window.alert(error instanceof Error ? error.message : "Unable to open the uploaded invoice.");
     }
   };
-  const savePackage = async (shipment: any) => {
-    const enteredWeight = weightById[shipment.id] ?? shipment.weight_lb;
-    const weight = enteredWeight === "" || enteredWeight === null || enteredWeight === undefined ? null : Number(enteredWeight);
+  const savePackage = async (shipment: any, edits?: PackageEditValues): Promise<boolean> => {
+    const weight = edits ? edits.weightLb : shipment.weight_lb ?? null;
     if (weight !== null && (!Number.isFinite(weight) || weight <= 0)) {
       window.alert("Enter a package weight greater than zero.");
-      return;
+      return false;
     }
-    const enteredAmount = customAmountById[shipment.id] ?? (shipment.custom_collection_amount_jmd == null ? "" : String(shipment.custom_collection_amount_jmd));
-    const customAmount = enteredAmount.trim() ? Number(enteredAmount) : null;
+    const customAmount = edits ? edits.customAmountJmd : shipment.custom_collection_amount_jmd ?? null;
     if (customAmount !== null && (!Number.isFinite(customAmount) || customAmount < 0)) {
       window.alert("Enter a valid custom amount of zero or more, or leave it blank to use the weight-based amount.");
-      return;
+      return false;
     }
-    const itemDescription = (itemDescriptionById[shipment.id] ?? shipment.item_description ?? "").trim();
+    const itemDescription = (edits ? edits.itemDescription : shipment.item_description ?? "").trim();
     if (itemDescription.length > 500) {
       window.alert("Item description must be 500 characters or fewer.");
-      return;
+      return false;
     }
-    const deliveryFee = Number(deliveryFeeById[shipment.id] ?? shipment.delivery_fee_jmd ?? 0);
-    if (!Number.isFinite(deliveryFee) || deliveryFee < 0) {
-      window.alert("Enter a delivery fee of zero or more.");
-      return;
+    const courierTrackingNumber = (edits ? edits.courierTrackingNumber : shipment.courier_tracking_number ?? "").trim();
+    if (courierTrackingNumber.length > 120) {
+      window.alert("Courier tracking number must be 120 characters or fewer.");
+      return false;
+    }
+    const serviceFeeOverride = edits ? edits.serviceFeeOverrideJmd : shipment.service_fee_override_jmd ?? null;
+    const customsFee = edits ? edits.customsFeeJmd : Number(shipment.customs_fee_jmd ?? 0);
+    const deliveryFee = edits ? edits.deliveryFeeJmd : Number(shipment.delivery_fee_jmd ?? 0);
+    if ((serviceFeeOverride !== null && (!Number.isFinite(serviceFeeOverride) || serviceFeeOverride < 0))
+      || !Number.isFinite(customsFee) || customsFee < 0
+      || !Number.isFinite(deliveryFee) || deliveryFee < 0) {
+      window.alert("Enter service, customs, and delivery fees of zero or more.");
+      return false;
     }
     const freightType = (shipment.freight_type === "sea" ? "sea" : "air") as "air" | "sea";
     const status = statusById[shipment.id] || shipment.status;
     setSavingPackageById(current => ({ ...current, [shipment.id]: true }));
     try {
-      const result = await updatePackageProcessing(shipment.id, status, weight, freightType, customAmount, itemDescription, deliveryFee);
+      const result = await updatePackageProcessing(shipment.id, status, weight, freightType, customAmount, itemDescription, serviceFeeOverride, customsFee, deliveryFee, courierTrackingNumber);
       onShipmentUpdated({ ...shipment, ...result });
       if (status === "ready_for_pickup") {
         const invoiceRows = await listAllInvoices();
@@ -920,8 +951,10 @@ function AdminWorkspace({ active, tickets, shipments, profiles, payments, invoic
         else onInvoicesUpdated(invoiceRows.data ?? []);
       }
       if (result.warnings?.length) window.alert(result.warnings.join("\n"));
+      return true;
     } catch (error) {
       window.alert(error instanceof Error ? error.message : "Unable to save package changes.");
+      return false;
     } finally {
       setSavingPackageById(current => ({ ...current, [shipment.id]: false }));
     }
@@ -957,55 +990,94 @@ function AdminWorkspace({ active, tickets, shipments, profiles, payments, invoic
     </section>;
   }
   if (active === "Shipments") return <section className="portal-card">
-    <div className="card-title"><div><h2>Shipments</h2><p className="muted">Record package weight, review the calculated amount, or set a custom amount.</p></div><button className="button button-small" onClick={() => setNewShipmentOpen(true)}>+ New shipment</button></div>
+    <div className="card-title"><div><h2>Shipments</h2><p className="muted">Use the pencil icon to edit package details and invoice fees.</p></div><button className="button button-small" onClick={() => setNewShipmentOpen(true)}>+ New shipment</button></div>
     <div className="table-wrap"><table><thead><tr><th>Package</th><th>Weight / pricing</th><th>Milestone</th><th>Route</th><th>Invoice</th><th>Customer alerts</th><th>Action</th></tr></thead>
       <tbody>{shipments.length ? shipments.map(shipment => {
         const selectedStatus = statusById[shipment.id] || shipment.status;
         const canNotify = selectedStatus === "received_at_miami" || selectedStatus === "ready_for_pickup";
         const amountValue = shipment.collection_amount_jmd;
         const amount = Number(amountValue || 0).toLocaleString("en-JM");
-        const pricing = shipment.pricing_breakdown;
-        const customAmountDraft = customAmountById[shipment.id];
-        const hasUnsavedPackageChanges =
-          (statusById[shipment.id] !== undefined && statusById[shipment.id] !== shipment.status)
-          || (weightById[shipment.id] !== undefined && Number(weightById[shipment.id] || 0) !== Number(shipment.weight_lb || 0))
-          || (customAmountDraft !== undefined && (customAmountDraft.trim() ? Number(customAmountDraft) : null) !== (shipment.custom_collection_amount_jmd == null ? null : Number(shipment.custom_collection_amount_jmd)))
-          || (itemDescriptionById[shipment.id] !== undefined && itemDescriptionById[shipment.id].trim() !== (shipment.item_description || ""))
-          || (deliveryFeeById[shipment.id] !== undefined && Number(deliveryFeeById[shipment.id] || 0) !== Number(shipment.delivery_fee_jmd || 0));
         const firstName = shipment.customer_name?.split(" ")[0] || "there";
         const message = selectedStatus === "received_at_miami"
           ? `Hi ${firstName}, your Global Xend JA package ${shipment.tracking_number} has arrived at our Miami warehouse and is being prepared for shipment to Jamaica. We will update you as it moves through our network.`
           : `Hi ${firstName}, your Global Xend JA package ${shipment.tracking_number} is ready for pickup/delivery. The expected collection amount is JMD $${amount}. Please contact us if you need delivery assistance.`;
         return <tr key={shipment.id}>
           <td><b>{shipment.tracking_number}</b></td>
-          <td>
-            <input className="weight-input" type="number" min="0.1" step="0.1" value={weightById[shipment.id] ?? shipment.weight_lb ?? ""} onChange={event => setWeightById(current => ({ ...current, [shipment.id]: event.target.value }))} placeholder="lb" />
-            <label className="shipment-package-field">Item description<input type="text" maxLength={500} value={itemDescriptionById[shipment.id] ?? shipment.item_description ?? ""} onChange={event => setItemDescriptionById(current => ({ ...current, [shipment.id]: event.target.value }))} placeholder="Brief item description" /></label>
-            <label className="shipment-package-field">Delivery fee (JMD)<input type="number" min="0" step="0.01" value={deliveryFeeById[shipment.id] ?? shipment.delivery_fee_jmd ?? 0} onChange={event => setDeliveryFeeById(current => ({ ...current, [shipment.id]: event.target.value }))} /></label>
-            {pricing ? <div className="package-price-breakdown">
-              <small>Normal shipping: JMD ${Number(pricing.normal_shipping_charge_jmd).toLocaleString("en-JM")}</small>
-              <small>Referral discount: -JMD ${Number(pricing.referral_discount_jmd).toLocaleString("en-JM")}{pricing.referral_code ? ` · ${pricing.referrer_name || "Referrer"} (${pricing.referral_code})` : ""}</small>
-              <small>Delivery fee: JMD ${Number(shipment.delivery_fee_jmd || 0).toLocaleString("en-JM")}</small>
-              <small>Local delivery: {Number(shipment.delivery_fee_jmd || 0) > 0 ? "Fee applied" : pricing.local_delivery_free ? "FREE" : "Standard charges may apply"}</small>
-              <strong>Total due: JMD ${amount}</strong>
-            </div> : amountValue !== null && amountValue !== undefined ? <small className="collection-amount">JMD ${amount}</small> : <small className="muted">Add weight</small>}
-            <label className="collection-amount-override">Custom amount (JMD)<input type="number" min="0" step="0.01" value={customAmountById[shipment.id] ?? (shipment.custom_collection_amount_jmd == null ? "" : String(shipment.custom_collection_amount_jmd))} onChange={event => setCustomAmountById(current => ({ ...current, [shipment.id]: event.target.value }))} placeholder={amountValue == null ? "Use weight-based amount" : `Calculated: JMD ${amount}`} /><small>Leave blank to use the weight-based amount.</small></label>
-          </td>
+          <td><div className="shipment-pricing-summary"><strong>{shipment.weight_lb != null ? `${shipment.weight_lb} lb` : "Weight pending"}</strong><span>{amountValue != null ? `Due: JMD $${amount}` : "Amount pending"}</span>{shipment.custom_collection_amount_jmd != null && <small>Custom total</small>}</div></td>
           <td><select value={selectedStatus} onChange={event => setStatusById(current => ({ ...current, [shipment.id]: event.target.value }))}><option value="label_created">Label created</option><option value="received_at_miami">Received at Miami hub</option><option value="in_transit">In transit</option><option value="ready_for_pickup">Ready for pickup/Delivery</option></select></td>
           <td>{shipment.origin} → {shipment.destination}</td>
           <td><span className="invoice-status">{shipment.invoice_uploaded ? <button className="invoice-view-button" type="button" onClick={() => void openPackageInvoice(shipment.id)} title={`View uploaded invoice for ${shipment.tracking_number}`} aria-label={`View uploaded invoice for ${shipment.tracking_number}`}><FileText size={15} /></button> : <FileText size={15} />} Invoice <i className={shipment.invoice_uploaded ? "pulse-dot uploaded" : "pulse-dot missing"} /></span></td>
           <td>{canNotify ? <div className="notification-actions">
             <a className="icon-action whatsapp" href={`https://wa.me/${String(shipment.customer_phone || "").replace(/\D/g, "")}?text=${encodeURIComponent(message)}`} target="_blank" rel="noreferrer" title="Send WhatsApp template" aria-label="Send WhatsApp template"><MessageCircle size={17} /></a>
             {selectedStatus === "received_at_miami" && <button className="icon-action email" type="button" onClick={async () => { try { await sendWarehousePackageEmail(shipment.id); } catch (error) { window.alert(error instanceof Error ? error.message : "Unable to send warehouse email."); } }} title="Send warehouse arrival email" aria-label="Send warehouse arrival email"><Mail size={17} /></button>}
-            {selectedStatus === "ready_for_pickup" && shipment.status === "ready_for_pickup" && <button className="icon-action email" type="button" disabled={!!sendingReadyEmailById[shipment.id] || hasUnsavedPackageChanges} onClick={async () => { setSendingReadyEmailById(current => ({ ...current, [shipment.id]: true })); try { const result = await sendPackageReadyEmail(shipment.id); window.alert(result.sent ? "Ready-for-pickup email sent." : result.reason || "The customer has disabled shipment status emails."); } catch (error) { window.alert(error instanceof Error ? error.message : "Unable to send ready-for-pickup email."); } finally { setSendingReadyEmailById(current => ({ ...current, [shipment.id]: false })); } }} title={hasUnsavedPackageChanges ? "Save package changes before sending this email" : "Manually send ready-for-pickup email"} aria-label="Manually send ready-for-pickup email"><Mail size={17} /></button>}
+            {selectedStatus === "ready_for_pickup" && shipment.status === "ready_for_pickup" && <button className="icon-action email" type="button" disabled={!!sendingReadyEmailById[shipment.id]} onClick={async () => { setSendingReadyEmailById(current => ({ ...current, [shipment.id]: true })); try { const result = await sendPackageReadyEmail(shipment.id); window.alert(result.sent ? "Ready-for-pickup email sent." : result.reason || "The customer has disabled shipment status emails."); } catch (error) { window.alert(error instanceof Error ? error.message : "Unable to send ready-for-pickup email."); } finally { setSendingReadyEmailById(current => ({ ...current, [shipment.id]: false })); } }} title="Manually send ready-for-pickup email" aria-label="Manually send ready-for-pickup email"><Mail size={17} /></button>}
           </div> : <span className="muted">Available at warehouse or ready stage</span>}</td>
-          <td><div className="shipment-actions"><button className="button button-small" disabled={!!savingPackageById[shipment.id]} onClick={() => void savePackage(shipment)}>{savingPackageById[shipment.id] ? "Saving..." : "Save package"}</button><button className="icon-action danger" type="button" onClick={async () => { if (!window.confirm(`Delete shipment ${shipment.tracking_number}? This cannot be undone.`)) return; const result = await deletePackage(shipment.id); if (result.error) window.alert(result.error.message); else onShipmentDeleted(shipment.id); }} title="Delete shipment" aria-label="Delete shipment"><Trash2 size={16} /></button></div></td>
+          <td><div className="shipment-actions"><button className="icon-action" type="button" onClick={() => setEditingPackageId(shipment.id)} title="Edit package details and fees" aria-label={`Edit details for ${shipment.tracking_number}`}><Pencil size={16} /></button><button className="button button-small" disabled={!!savingPackageById[shipment.id]} onClick={() => void savePackage(shipment)}>{savingPackageById[shipment.id] ? "Saving..." : "Save package"}</button><button className="icon-action danger" type="button" onClick={async () => { if (!window.confirm(`Delete shipment ${shipment.tracking_number}? This cannot be undone.`)) return; const result = await deletePackage(shipment.id); if (result.error) window.alert(result.error.message); else onShipmentDeleted(shipment.id); }} title="Delete shipment" aria-label="Delete shipment"><Trash2 size={16} /></button></div></td>
         </tr>;
       }) : <tr><td colSpan={7}>No shipments found.</td></tr>}</tbody></table></div>
     {newShipmentOpen && <NewShipmentModal profiles={profiles} onClose={() => setNewShipmentOpen(false)} onCreated={shipment => { onShipmentCreated(shipment); setNewShipmentOpen(false); }} />}
+    {editingShipment && <PackageEditModal shipment={editingShipment} saving={!!savingPackageById[editingShipment.id]} onClose={() => setEditingPackageId(null)} onSave={values => savePackage(editingShipment, values)} />}
   </section>;
   const descriptions: Record<string, string> = { "Manage Users": "Manage customer accounts, roles, and access.", Shipments: "Monitor and update every shipment in the network.", Invoices: "Review uploaded invoices and verification status.", Payments: "Reconcile payment activity and outstanding balances.", Reports: "Build operational and financial reports.", Services: "Configure freight and delivery services.", Settings: "Configure portal defaults and administrator preferences.", "System Logs": "Review security and operational events." };
   return active === "Settings" ? <AdminSettings userId={userId} /> : <section className="portal-card"><div className="card-title"><div><h2>{active}</h2><p className="muted">{descriptions[active]}</p></div></div><div className="empty-state"><h3>No records available</h3><p className="muted">This workspace is connected to live Supabase data and will display records when they are created.</p></div></section>;
+}
+function PackageEditModal({ shipment, saving, onClose, onSave }: { shipment: any; saving: boolean; onClose: () => void; onSave: (values: PackageEditValues) => Promise<boolean> }) {
+  const [weightLb, setWeightLb] = useState(shipment.weight_lb == null ? "" : String(shipment.weight_lb));
+  const [itemDescription, setItemDescription] = useState(shipment.item_description || "");
+  const [courierTrackingNumber, setCourierTrackingNumber] = useState(shipment.courier_tracking_number || "");
+  const [customAmount, setCustomAmount] = useState(shipment.custom_collection_amount_jmd == null ? "" : String(shipment.custom_collection_amount_jmd));
+  const [customsFee, setCustomsFee] = useState(Number(shipment.customs_fee_jmd ?? 0).toFixed(2));
+  const [deliveryFee, setDeliveryFee] = useState(Number(shipment.delivery_fee_jmd ?? 0).toFixed(2));
+  const pricing = shipment.pricing_breakdown || {};
+  const existingServiceOverride = shipment.service_fee_override_jmd;
+  const [serviceFee, setServiceFee] = useState(String(existingServiceOverride ?? pricing.service_fee_jmd ?? pricing.normal_shipping_charge_jmd ?? 0));
+  const [useWeightRate, setUseWeightRate] = useState(existingServiceOverride == null);
+  const [rateSettings, setRateSettings] = useState<RateSettings | null>(null);
+  const [rateError, setRateError] = useState("");
+  useEffect(() => {
+    let active = true;
+    loadRateSettings().then(rates => { if (active) setRateSettings(rates); })
+      .catch(error => { if (active) setRateError(error instanceof Error ? error.message : "Unable to load current shipping rates."); });
+    return () => { active = false; };
+  }, []);
+  const enteredWeight = Number(weightLb);
+  const freightType = shipment.freight_type === "sea" ? "sea" : "air";
+  const calculatedServiceFee = rateSettings && Number.isFinite(enteredWeight) && enteredWeight > 0
+    ? rateForPounds(enteredWeight, freightType, rateSettings)
+    : Number(pricing.service_fee_jmd ?? pricing.normal_shipping_charge_jmd ?? 0);
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    const saved = await onSave({
+      weightLb: weightLb.trim() ? Number(weightLb) : null,
+      itemDescription: itemDescription.trim(),
+      courierTrackingNumber: courierTrackingNumber.trim(),
+      customAmountJmd: customAmount.trim() ? Number(customAmount) : null,
+      serviceFeeOverrideJmd: useWeightRate ? null : serviceFee.trim() ? Number(serviceFee) : null,
+      customsFeeJmd: customsFee.trim() ? Number(customsFee) : 0,
+      deliveryFeeJmd: deliveryFee.trim() ? Number(deliveryFee) : 0,
+    });
+    if (saved) onClose();
+  };
+  return <div className="modal-backdrop package-edit-backdrop" onMouseDown={onClose}>
+    <section className="payment-modal package-edit-modal" role="dialog" aria-modal="true" aria-labelledby="package-edit-title" onMouseDown={event => event.stopPropagation()}>
+      <button className="modal-close" type="button" onClick={onClose} aria-label="Close package editor"><X /></button>
+      <h2 id="package-edit-title">Edit shipment details</h2>
+      <p className="muted">{shipment.tracking_number} · Add item details and adjust the invoice fees.</p>
+      <form onSubmit={event => void submit(event)}>
+        <div className="form-grid package-edit-fields">
+          <label>Weight (lb)<input type="number" min="0.1" step="0.1" value={weightLb} onChange={event => setWeightLb(event.target.value)} placeholder="Enter package weight" /></label>
+          <label>Item description<input type="text" maxLength={500} value={itemDescription} onChange={event => setItemDescription(event.target.value)} placeholder="Brief item description" /></label>
+          <label>Courier tracking number <span className="muted">(optional)</span><input type="text" maxLength={120} value={courierTrackingNumber} onChange={event => setCourierTrackingNumber(event.target.value)} placeholder="e.g. Amazon TBA111xxxx" /></label>
+          <label>Service fee (JMD)<input type="number" min="0" step="0.01" value={useWeightRate ? calculatedServiceFee.toFixed(2) : serviceFee} onChange={event => { setServiceFee(event.target.value); setUseWeightRate(false); }} /><small>Weight-based amount: JMD ${calculatedServiceFee.toLocaleString("en-JM", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</small>{!useWeightRate && <button className="text-button package-fee-reset" type="button" onClick={() => setUseWeightRate(true)}>Use weight-based fee</button>}{rateError && <small className="form-error">{rateError}</small>}</label>
+          <label>Customs fee (JMD)<input type="number" min="0" step="0.01" value={customsFee} onChange={event => setCustomsFee(event.target.value)} /></label>
+          <label>Delivery fee (JMD)<input type="number" min="0" step="0.01" value={deliveryFee} onChange={event => setDeliveryFee(event.target.value)} /></label>
+          <label>Custom total override (JMD) <span className="muted">(optional)</span><input type="number" min="0" step="0.01" value={customAmount} onChange={event => setCustomAmount(event.target.value)} placeholder="Leave blank to calculate from fees" /><small>Overrides the calculated total when entered.</small></label>
+        </div>
+        <p className="package-edit-discount muted">Referral discount: JMD ${Number(pricing.referral_discount_jmd || 0).toLocaleString("en-JM", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} · Calculated total updates when you save.</p>
+        <div className="package-edit-actions"><button className="button button-outline" type="button" onClick={onClose} disabled={saving}>Cancel</button><button className="button" type="submit" disabled={saving}>{saving ? "Saving..." : "Save details"}</button></div>
+      </form>
+    </section>
+  </div>;
 }
 function NewShipmentModal({ profiles, onClose, onCreated }: { profiles: any[]; onClose: () => void; onCreated: (shipment: any) => void }) {
   const [customerId, setCustomerId] = useState("");

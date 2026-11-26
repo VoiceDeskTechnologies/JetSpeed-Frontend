@@ -1,10 +1,10 @@
 import { supabase } from "./supabase";
 
 export type Profile = { id: string; full_name: string | null; first_name?: string | null; last_name?: string | null; phone: string | null; email?: string | null; role: "customer" | "support" | "driver" | "admin"; identifier_code?: string | null; referral_code?: string | null; referral_discount_eligible?: boolean; address_line1?: string | null; address_line2?: string | null; city_town?: string | null; parish?: string | null; delivery_preference?: "pickup" | "delivery"; shipment_status_emails?: boolean; delivery_reminders?: boolean; us_address_line1?: string; us_address_city?: string; us_address_state?: string; us_address_zip?: string };
-export type Shipment = { id: string; tracking_number: string; status: string; origin: string; destination: string; estimated_delivery: string | null; created_at: string; invoice_uploaded: boolean; weight_lb?: number | null; freight_type?: "air" | "sea"; collection_amount_jmd?: number | null; custom_collection_amount_jmd?: number | null; item_description?: string | null; delivery_fee_jmd?: number | null; pricing_breakdown?: PackagePricingBreakdown | null };
+export type Shipment = { id: string; tracking_number: string; status: string; origin: string; destination: string; estimated_delivery: string | null; created_at: string; invoice_uploaded: boolean; weight_lb?: number | null; freight_type?: "air" | "sea"; collection_amount_jmd?: number | null; custom_collection_amount_jmd?: number | null; item_description?: string | null; service_fee_override_jmd?: number | null; customs_fee_jmd?: number | null; delivery_fee_jmd?: number | null; courier_tracking_number?: string | null; pricing_breakdown?: PackagePricingBreakdown | null };
 export type TrackingEvent = { id: string; package_id: string; status: string; description: string | null; location: string | null; created_at: string };
 export type SupportTicket = { id: string; subject: string; category: string; priority: string; message: string; status: string; created_at: string };
-export type PackagePricingBreakdown = { chargeable_weight_lb: number; recorded_weight_lb: number; freight_type: "air" | "sea"; normal_shipping_charge_jmd: number; referral_discount_eligible: boolean; referral_code: string | null; referral_discount_jmd: number; delivery_fee_jmd?: number; custom_fee_adjustment_jmd?: number; free_delivery_eligible: boolean; local_delivery_free: boolean; final_amount_jmd: number; calculated_at: string };
+export type PackagePricingBreakdown = { chargeable_weight_lb: number; recorded_weight_lb: number; freight_type: "air" | "sea"; normal_shipping_charge_jmd: number; service_fee_jmd?: number; service_fee_override_jmd?: number | null; customs_fee_jmd?: number; referral_discount_eligible: boolean; referral_code: string | null; referral_discount_jmd: number; delivery_fee_jmd?: number; custom_fee_adjustment_jmd?: number; free_delivery_eligible: boolean; local_delivery_free: boolean; final_amount_jmd: number; calculated_at: string };
 export type AdminNotification = { id: string; type: string; title: string; body: string; read_at: string | null; created_at: string };
 export type Invoice = { id: string; invoice_number: string; amount: number; currency: string; status: string; due_date: string | null; created_at: string };
 export type AuthorizedPickupPerson = { id: string; user_id: string; full_name: string; phone: string; relationship: string | null; id_type: "national_id" | "drivers_license" | "passport" | "other"; id_document_path: string; created_at: string };
@@ -30,10 +30,10 @@ export async function hasCustomerTrn(userId: string) {
 export async function updateCustomerTrn(userId: string, trn: string) {
   return requireClient().from("customer_sensitive_data").upsert({ user_id: userId, trn }, { onConflict: "user_id" }).select("user_id").single();
 }
-export async function listShipments(userId: string) { return requireClient().from("packages").select("id,tracking_number,status,origin,destination,estimated_delivery,created_at,invoice_uploaded,collection_amount_jmd,custom_collection_amount_jmd,item_description,delivery_fee_jmd,weight_lb,freight_type,pricing_breakdown").eq("customer_id", userId).order("created_at", { ascending: false }).returns<Shipment[]>(); }
-export async function listAllShipments() { return requireClient().from("packages").select("id,customer_id,tracking_number,status,origin,destination,estimated_delivery,created_at,invoice_uploaded,customer_name,customer_email,customer_phone,collection_amount_jmd,custom_collection_amount_jmd,item_description,delivery_fee_jmd,weight_lb,freight_type,pricing_breakdown,profiles:customer_id(full_name,phone)").order("created_at", { ascending: false }).returns<Shipment[]>(); }
+export async function listShipments(userId: string) { return requireClient().from("packages").select("id,tracking_number,status,origin,destination,estimated_delivery,created_at,invoice_uploaded,collection_amount_jmd,custom_collection_amount_jmd,item_description,service_fee_override_jmd,customs_fee_jmd,delivery_fee_jmd,courier_tracking_number,weight_lb,freight_type,pricing_breakdown").eq("customer_id", userId).order("created_at", { ascending: false }).returns<Shipment[]>(); }
+export async function listAllShipments() { return requireClient().from("packages").select("id,customer_id,tracking_number,status,origin,destination,estimated_delivery,created_at,invoice_uploaded,customer_name,customer_email,customer_phone,collection_amount_jmd,custom_collection_amount_jmd,item_description,service_fee_override_jmd,customs_fee_jmd,delivery_fee_jmd,courier_tracking_number,weight_lb,freight_type,pricing_breakdown,profiles:customer_id(full_name,phone)").order("created_at", { ascending: false }).returns<Shipment[]>(); }
 export async function createPackage(packageData: { customer_id: string; tracking_number: string; origin: string; destination: string; status: string; service_level: string; weight_kg: number | null; estimated_delivery: string | null; customer_name?: string | null; customer_email?: string | null; customer_phone?: string | null }) {
-  return requireClient().from("packages").insert(packageData).select("id,customer_id,tracking_number,status,origin,destination,estimated_delivery,created_at,invoice_uploaded,customer_name,customer_email,customer_phone,collection_amount_jmd,custom_collection_amount_jmd,item_description,delivery_fee_jmd,weight_lb,freight_type").single();
+  return requireClient().from("packages").insert(packageData).select("id,customer_id,tracking_number,status,origin,destination,estimated_delivery,created_at,invoice_uploaded,customer_name,customer_email,customer_phone,collection_amount_jmd,custom_collection_amount_jmd,item_description,service_fee_override_jmd,customs_fee_jmd,delivery_fee_jmd,courier_tracking_number,weight_lb,freight_type").single();
 }
 export async function deletePackage(packageId: string) { return requireClient().from("packages").delete().eq("id", packageId); }
 export async function listSiteSettings() { return requireClient().from("site_settings").select("key,value").order("key"); }
@@ -91,7 +91,7 @@ export async function getShippingInvoicePdf(packageId: string) {
   }
   return response.blob();
 }
-export async function updatePackageProcessing(packageId: string, status: string, weightLb: number | null, freightType: "air" | "sea", customAmountJmd: number | null, itemDescription: string, deliveryFeeJmd: number) {
+export async function updatePackageProcessing(packageId: string, status: string, weightLb: number | null, freightType: "air" | "sea", customAmountJmd: number | null, itemDescription: string, serviceFeeOverrideJmd: number | null, customsFeeJmd: number, deliveryFeeJmd: number, courierTrackingNumber: string) {
   const client = requireClient();
   const { data: session } = await client.auth.getSession();
   const token = session.session?.access_token;
@@ -100,10 +100,10 @@ export async function updatePackageProcessing(packageId: string, status: string,
   const response = await fetch(`${apiUrl}/packages/${packageId}`, {
     method: "PATCH",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ status, weight_lb: weightLb, freight_type: freightType, custom_amount_jmd: customAmountJmd, item_description: itemDescription, delivery_fee_jmd: deliveryFeeJmd }),
+    body: JSON.stringify({ status, weight_lb: weightLb, freight_type: freightType, custom_amount_jmd: customAmountJmd, item_description: itemDescription, service_fee_override_jmd: serviceFeeOverrideJmd, customs_fee_jmd: customsFeeJmd, delivery_fee_jmd: deliveryFeeJmd, courier_tracking_number: courierTrackingNumber }),
   });
   const payload = await response.json() as {
-    data?: { id: string; status: string; weight_lb: number | null; freight_type: "air" | "sea"; collection_amount_jmd: number | null; custom_collection_amount_jmd: number | null; item_description: string | null; delivery_fee_jmd: number; pricing_breakdown: PackagePricingBreakdown | null };
+    data?: { id: string; status: string; weight_lb: number | null; freight_type: "air" | "sea"; collection_amount_jmd: number | null; custom_collection_amount_jmd: number | null; item_description: string | null; service_fee_override_jmd: number | null; customs_fee_jmd: number; delivery_fee_jmd: number; courier_tracking_number: string | null; pricing_breakdown: PackagePricingBreakdown | null };
     warnings?: string[];
     error?: string;
   };
