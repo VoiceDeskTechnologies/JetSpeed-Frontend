@@ -7,7 +7,7 @@ import {
 import { trackPackage } from "./lib/api";
 import { Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { supabase, supabaseConfigured } from "./lib/supabase";
-import { Announcement, AuthorizedPickupPerson, createAnnouncement, createAuthorizedPickupPerson, createPackage, createShippingService, createSupportTicket, deleteAnnouncement, deleteAuthorizedPickupPerson, deleteInvoice, deletePackage, deletePayment, getAuthorizedPickupIdUrl, getInvoiceDownloadUrl, getProfile, getSession, getShippingInvoicePdf, hasCustomerTrn, listAllInvoices, listAllPayments, listAllShipments, listAllSupportTickets, listAnnouncements, listAuthorizedPickupPersons, listInvoices, listNotifications, listProfiles, listPublicAnnouncements, listShipments, listShippingServices, listSiteSettings, listSupportTickets, listTrackingEvents, markNotificationRead, recordPayment, saveSiteSetting, sendPackageReadyEmail, sendPaymentReceipt, sendWarehousePackageEmail, signIn, signUp, signOut, syncFreightForwarderAccount, updateAnnouncement, updateCustomerTrn, updateDeliveryPreference, updateEmail, updatePackageInvoice, updatePackageProcessing, updatePassword, updateProfile, updateShippingService, updateSupportTicketStatus, updateUserRole, uploadInvoiceFile } from "./lib/data";
+import { Announcement, AuthorizedPickupPerson, createAnnouncement, createAuthorizedPickupPerson, createPackage, createShippingService, createSupportTicket, deleteAnnouncement, deleteAuthorizedPickupPerson, deleteInvoice, deletePackage, deletePayment, getAuthorizedPickupIdUrl, getInvoiceDownloadUrl, getPackageInvoiceShareUrl, getProfile, getSession, getShippingInvoicePdf, hasCustomerTrn, listAllInvoices, listAllPayments, listAllShipments, listAllSupportTickets, listAnnouncements, listAuthorizedPickupPersons, listInvoices, listNotifications, listProfiles, listPublicAnnouncements, listShipments, listShippingServices, listSiteSettings, listSupportTickets, listTrackingEvents, markNotificationRead, recordPayment, saveSiteSetting, sendPackageReadyEmail, sendPaymentReceipt, sendWarehousePackageEmail, signIn, signUp, signOut, syncFreightForwarderAccount, updateAnnouncement, updateCustomerTrn, updateDeliveryPreference, updateEmail, updatePackageInvoice, updatePackageProcessing, updatePassword, updateProfile, updateShippingService, updateSupportTicketStatus, updateUserRole, uploadInvoiceFile } from "./lib/data";
 import { addReferralDeliveryArea, getReferralManagement, getReferralSummary, ReferralManagement as ReferralManagementData, ReferralSummary, removeReferralDeliveryArea, updateReferralCustomerEligibility, updateReferralSettings, validateReferralCode } from "./lib/referrals";
 
 type View = "home" | "services" | "rates" | "track" | "about" | "contact" | "help" | "terms" | "privacy" |
@@ -887,6 +887,7 @@ function AdminWorkspace({ active, tickets, shipments, profiles, payments, invoic
   const [editingPackageId, setEditingPackageId] = useState<string | null>(null);
   const [savingPackageById, setSavingPackageById] = useState<Record<string, boolean>>({});
   const [sendingReadyEmailById, setSendingReadyEmailById] = useState<Record<string, boolean>>({});
+  const [sendingReadyWhatsAppById, setSendingReadyWhatsAppById] = useState<Record<string, boolean>>({});
   const [newShipmentOpen, setNewShipmentOpen] = useState(false);
   const [localInvoices, setLocalInvoices] = useState(invoices);
   useEffect(() => setLocalInvoices(invoices), [invoices]);
@@ -959,6 +960,34 @@ function AdminWorkspace({ active, tickets, shipments, profiles, payments, invoic
       setSavingPackageById(current => ({ ...current, [shipment.id]: false }));
     }
   };
+  const sendReadyWhatsApp = async (shipment: any, firstName: string) => {
+    const whatsappWindow = window.open("about:blank", "_blank");
+    if (!whatsappWindow) { window.alert("Allow pop-ups to open WhatsApp."); return; }
+    setSendingReadyWhatsAppById(current => ({ ...current, [shipment.id]: true }));
+    try {
+      const invoiceUrl = await getPackageInvoiceShareUrl(shipment.id);
+      const courierTracking = shipment.courier_tracking_number
+        ? `\nCourier tracking number: ${shipment.courier_tracking_number}`
+        : "";
+      const chargeableWeight = shipment.pricing_breakdown?.chargeable_weight_lb ?? shipment.weight_lb ?? "Not recorded";
+      const message = [
+        `Hi ${firstName}, your Global Xend JA package ${shipment.tracking_number} is ready for pickup/delivery.`,
+        `Courier code: ${shipment.profiles?.identifier_code || "Not available"}`,
+        `Item description: ${shipment.item_description || "Not provided"}`,
+        `Package weight: ${chargeableWeight} lb`,
+        `Shipping type: ${shipment.freight_type === "sea" ? "Sea freight" : "Air freight"}`,
+        `Total amount due: JMD $${Number(shipment.collection_amount_jmd || 0).toLocaleString("en-JM", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}${courierTracking}`,
+        `PDF invoice: ${invoiceUrl}`,
+      ].join("\n");
+      const phone = String(shipment.customer_phone || shipment.profiles?.phone || "").replace(/\D/g, "");
+      whatsappWindow.location.href = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
+    } catch (error) {
+      whatsappWindow.close();
+      window.alert(error instanceof Error ? error.message : "Unable to prepare the WhatsApp invoice message.");
+    } finally {
+      setSendingReadyWhatsAppById(current => ({ ...current, [shipment.id]: false }));
+    }
+  };
   if (active === "Announcements & Updates") return <AnnouncementsWorkspace />;
   if (active === "Referral Management" && canChangeRoles) return <ReferralManagementWorkspace />;
   if (active === "Dashboard") { const inTransit = shipments.filter(shipment => shipment.status === "in_transit").length; const delivered = shipments.filter(shipment => shipment.status === "delivered").length; const shipmentTrend = buildDailySeries(shipments, "count"); const revenueTrend = buildPaymentSeries(payments); return <><div className="stats"><Stat icon={<Package />} value={String(shipments.length)} label="Shipments" /><Stat icon={<Truck />} value={String(inTransit)} label="In transit" accent /><Stat icon={<CheckCircle2 />} value={String(delivered)} label="Delivered" green /></div><section className="portal-card"><h2>Dashboard analytics</h2><p className="muted">Live operational counts from Supabase. Financial totals appear when payment records are available.</p><div className="analytics-grid"><div><b>Total users</b><strong>{profiles.length}</strong><span>Registered profiles</span></div><div><b>Total shipments</b><strong>{shipments.length}</strong><span>Current package records</span></div><div><b>Invoices uploaded</b><strong>{shipments.filter(shipment => shipment.invoice_uploaded).length}</strong><span>Linked package invoices</span></div><div><b>Open tickets</b><strong>{tickets.filter(ticket => ticket.status !== "closed").length}</strong><span>Customer support queue</span></div></div><div className="chart-grid"><LiveChart title="Shipments over time" data={shipmentTrend} dataKey="shipments" color="#1675D1" empty={!shipments.length} /><LiveChart title="Revenue from payments (JMD)" data={revenueTrend} dataKey="revenue" color="#FF7900" empty={!payments.length} /></div></section></>; }
@@ -998,9 +1027,7 @@ function AdminWorkspace({ active, tickets, shipments, profiles, payments, invoic
         const amountValue = shipment.collection_amount_jmd;
         const amount = Number(amountValue || 0).toLocaleString("en-JM");
         const firstName = shipment.customer_name?.split(" ")[0] || "there";
-        const message = selectedStatus === "received_at_miami"
-          ? `Hi ${firstName}, your Global Xend JA package ${shipment.tracking_number} has arrived at our Miami warehouse and is being prepared for shipment to Jamaica. We will update you as it moves through our network.`
-          : `Hi ${firstName}, your Global Xend JA package ${shipment.tracking_number} is ready for pickup/delivery. The expected collection amount is JMD $${amount}. Please contact us if you need delivery assistance.`;
+        const message = `Hi ${firstName}, your Global Xend JA package ${shipment.tracking_number} has arrived at our Miami warehouse and is being prepared for shipment to Jamaica. We will update you as it moves through our network.`;
         return <tr key={shipment.id}>
           <td><b>{shipment.tracking_number}</b></td>
           <td><div className="shipment-pricing-summary"><strong>{shipment.weight_lb != null ? `${shipment.weight_lb} lb` : "Weight pending"}</strong><span>{amountValue != null ? `Due: JMD $${amount}` : "Amount pending"}</span>{shipment.custom_collection_amount_jmd != null && <small>Custom total</small>}</div></td>
@@ -1008,7 +1035,8 @@ function AdminWorkspace({ active, tickets, shipments, profiles, payments, invoic
           <td>{shipment.origin} → {shipment.destination}</td>
           <td><span className="invoice-status">{shipment.invoice_uploaded ? <button className="invoice-view-button" type="button" onClick={() => void openPackageInvoice(shipment.id)} title={`View uploaded invoice for ${shipment.tracking_number}`} aria-label={`View uploaded invoice for ${shipment.tracking_number}`}><FileText size={15} /></button> : <FileText size={15} />} Invoice <i className={shipment.invoice_uploaded ? "pulse-dot uploaded" : "pulse-dot missing"} /></span></td>
           <td>{canNotify ? <div className="notification-actions">
-            <a className="icon-action whatsapp" href={`https://wa.me/${String(shipment.customer_phone || "").replace(/\D/g, "")}?text=${encodeURIComponent(message)}`} target="_blank" rel="noreferrer" title="Send WhatsApp template" aria-label="Send WhatsApp template"><MessageCircle size={17} /></a>
+            {selectedStatus === "received_at_miami" && <a className="icon-action whatsapp" href={`https://wa.me/${String(shipment.customer_phone || shipment.profiles?.phone || "").replace(/\D/g, "")}?text=${encodeURIComponent(message)}`} target="_blank" rel="noreferrer" title="Send WhatsApp arrival message" aria-label="Send WhatsApp arrival message"><MessageCircle size={17} /></a>}
+            {selectedStatus === "ready_for_pickup" && <button className="icon-action whatsapp" type="button" disabled={!!sendingReadyWhatsAppById[shipment.id]} onClick={() => void sendReadyWhatsApp(shipment, firstName)} title="Open WhatsApp with package details and invoice link" aria-label="Open WhatsApp with package details and invoice link"><MessageCircle size={17} /></button>}
             {selectedStatus === "received_at_miami" && <button className="icon-action email" type="button" onClick={async () => { try { await sendWarehousePackageEmail(shipment.id); } catch (error) { window.alert(error instanceof Error ? error.message : "Unable to send warehouse email."); } }} title="Send warehouse arrival email" aria-label="Send warehouse arrival email"><Mail size={17} /></button>}
             {selectedStatus === "ready_for_pickup" && shipment.status === "ready_for_pickup" && <button className="icon-action email" type="button" disabled={!!sendingReadyEmailById[shipment.id]} onClick={async () => { setSendingReadyEmailById(current => ({ ...current, [shipment.id]: true })); try { const result = await sendPackageReadyEmail(shipment.id); window.alert(result.sent ? "Ready-for-pickup email sent." : result.reason || "The customer has disabled shipment status emails."); } catch (error) { window.alert(error instanceof Error ? error.message : "Unable to send ready-for-pickup email."); } finally { setSendingReadyEmailById(current => ({ ...current, [shipment.id]: false })); } }} title="Manually send ready-for-pickup email" aria-label="Manually send ready-for-pickup email"><Mail size={17} /></button>}
           </div> : <span className="muted">Available at warehouse or ready stage</span>}</td>

@@ -31,7 +31,7 @@ export async function updateCustomerTrn(userId: string, trn: string) {
   return requireClient().from("customer_sensitive_data").upsert({ user_id: userId, trn }, { onConflict: "user_id" }).select("user_id").single();
 }
 export async function listShipments(userId: string) { return requireClient().from("packages").select("id,tracking_number,status,origin,destination,estimated_delivery,created_at,invoice_uploaded,collection_amount_jmd,custom_collection_amount_jmd,item_description,service_fee_override_jmd,customs_fee_jmd,delivery_fee_jmd,courier_tracking_number,weight_lb,freight_type,pricing_breakdown").eq("customer_id", userId).order("created_at", { ascending: false }).returns<Shipment[]>(); }
-export async function listAllShipments() { return requireClient().from("packages").select("id,customer_id,tracking_number,status,origin,destination,estimated_delivery,created_at,invoice_uploaded,customer_name,customer_email,customer_phone,collection_amount_jmd,custom_collection_amount_jmd,item_description,service_fee_override_jmd,customs_fee_jmd,delivery_fee_jmd,courier_tracking_number,weight_lb,freight_type,pricing_breakdown,profiles:customer_id(full_name,phone)").order("created_at", { ascending: false }).returns<Shipment[]>(); }
+export async function listAllShipments() { return requireClient().from("packages").select("id,customer_id,tracking_number,status,origin,destination,estimated_delivery,created_at,invoice_uploaded,customer_name,customer_email,customer_phone,collection_amount_jmd,custom_collection_amount_jmd,item_description,service_fee_override_jmd,customs_fee_jmd,delivery_fee_jmd,courier_tracking_number,weight_lb,freight_type,pricing_breakdown,profiles:customer_id(full_name,phone,identifier_code)").order("created_at", { ascending: false }).returns<Shipment[]>(); }
 export async function createPackage(packageData: { customer_id: string; tracking_number: string; origin: string; destination: string; status: string; service_level: string; weight_kg: number | null; estimated_delivery: string | null; customer_name?: string | null; customer_email?: string | null; customer_phone?: string | null }) {
   return requireClient().from("packages").insert(packageData).select("id,customer_id,tracking_number,status,origin,destination,estimated_delivery,created_at,invoice_uploaded,customer_name,customer_email,customer_phone,collection_amount_jmd,custom_collection_amount_jmd,item_description,service_fee_override_jmd,customs_fee_jmd,delivery_fee_jmd,courier_tracking_number,weight_lb,freight_type").single();
 }
@@ -90,6 +90,23 @@ export async function getShippingInvoicePdf(packageId: string) {
     throw new Error(payload.error || "Unable to download the shipping invoice.");
   }
   return response.blob();
+}
+export async function getPackageInvoiceShareUrl(packageId: string) {
+  const client = requireClient();
+  const { data: session } = await client.auth.getSession();
+  const token = session.session?.access_token;
+  const apiUrl = import.meta.env.VITE_API_URL?.replace(/\/$/, "");
+  if (!token || !apiUrl) throw new Error("Invoice sharing is not configured or your staff session has expired.");
+  const response = await fetch(`${apiUrl}/package-invoices/${packageId}/share-link`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const payload = await response.json() as { expires?: number; token?: string; error?: string };
+  if (!response.ok || !payload.expires || !payload.token) throw new Error(payload.error || "Unable to create the invoice link.");
+  const url = new URL(`${apiUrl}/package-invoices/${packageId}/pdf`);
+  url.searchParams.set("expires", String(payload.expires));
+  url.searchParams.set("token", payload.token);
+  return url.toString();
 }
 export async function updatePackageProcessing(packageId: string, status: string, weightLb: number | null, freightType: "air" | "sea", customAmountJmd: number | null, itemDescription: string, serviceFeeOverrideJmd: number | null, customsFeeJmd: number, deliveryFeeJmd: number, courierTrackingNumber: string) {
   const client = requireClient();
