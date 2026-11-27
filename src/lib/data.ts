@@ -18,7 +18,7 @@ export async function signUp(email: string, password: string, registration: { fi
 }
 export async function signOut() { return requireClient().auth.signOut(); }
 export async function getProfile(userId: string) { return requireClient().from("profiles").select("*").eq("id", userId).single<Profile>(); }
-export async function listProfiles() { return requireClient().from("profiles").select("id,full_name,phone,email,role,identifier_code,delivery_preference,pickup_location,us_address_line1,us_address_city,us_address_state,us_address_zip,created_at").order("created_at", { ascending: false }); }
+export async function listProfiles() { return requireClient().from("profiles").select("id,full_name,first_name,last_name,phone,email,address_line1,address_line2,city_town,parish,role,identifier_code,delivery_preference,pickup_location,us_address_line1,us_address_city,us_address_state,us_address_zip,created_at").order("created_at", { ascending: false }); }
 export async function updateUserRole(userId: string, role: "customer" | "support" | "admin") { return requireClient().from("profiles").update({ role }).eq("id", userId).select().single<Profile>(); }
 export async function updateProfile(userId: string, values: { full_name: string; first_name: string; last_name: string; phone: string | null; address_line1: string; address_line2: string | null; city_town: string; parish: string; shipment_status_emails: boolean; delivery_reminders: boolean }) { return requireClient().from("profiles").update(values).eq("id", userId).select().single<Profile>(); }
 export async function updateDeliveryPreference(userId: string, deliveryPreference: "pickup" | "delivery") { return requireClient().from("profiles").update({ delivery_preference: deliveryPreference }).eq("id", userId).select().single(); }
@@ -26,6 +26,11 @@ export async function updateEmail(email: string) { return requireClient().auth.u
 export async function updatePassword(password: string) { return requireClient().auth.updateUser({ password }); }
 export async function hasCustomerTrn(userId: string) {
   return requireClient().from("customer_sensitive_data").select("user_id").eq("user_id", userId).maybeSingle();
+}
+export async function getCustomerRegistrationDetails(userId: string) {
+  const { data, error } = await requireClient().rpc("admin_customer_registration_details", { customer_id: userId }).single<{ trn: string | null; referral_code: string | null }>();
+  if (error) throw new Error(error.message);
+  return { trn: data.trn, referralCode: data.referral_code };
 }
 export async function updateCustomerTrn(userId: string, trn: string) {
   return requireClient().from("customer_sensitive_data").upsert({ user_id: userId, trn }, { onConflict: "user_id" }).select("user_id").single();
@@ -145,7 +150,7 @@ export async function listAllSupportTickets() { return requireClient().from("sup
 export async function updateSupportTicketStatus(ticketId: string, status: SupportTicket["status"]) {
   return requireClient().from("support_tickets").update({ status }).eq("id", ticketId).select("id,status").single();
 }
-export async function listAllInvoices() { return requireClient().from("invoices").select("id,invoice_number,status,amount,currency,file_path,created_at,package_id,invoice_kind,pricing_breakdown,shipping_for_package_id,packages:package_id(tracking_number)").order("created_at", { ascending: false }); }
+export async function listAllInvoices() { return requireClient().from("invoices").select("id,invoice_number,status,file_path,created_at,package_id,invoice_kind,packages:package_id(tracking_number)").eq("invoice_kind", "uploaded_document").not("file_path", "is", null).neq("file_path", "").order("created_at", { ascending: false }); }
 export async function getInvoiceDownloadUrl(filePath: string) { return requireClient().storage.from("invoices").createSignedUrl(filePath, 300); }
 export async function listAuthorizedPickupPersons(userId: string) {
   return requireClient().from("authorized_pickup_persons").select("id,user_id,full_name,phone,relationship,id_type,id_document_path,created_at").eq("user_id", userId).order("created_at", { ascending: false }).returns<AuthorizedPickupPerson[]>();
